@@ -11,7 +11,7 @@ beta0 = Variable(torch.Tensor([10.0]))
 fairness = pyro.sample("latent", dist.Beta(blah))
 f2 = sample("latent2", dist.Gamma(alpha0, beta0))
 fairness = pyro.sample("latent", dist.Beta(alpha0, beta0), obs=data)
-f3 = pyro.sample("latent3", dist.Gamma(alpha0, beta0), obs=None)
+f3 = pyro.sample("latent3", Gamma(alpha0, beta0), obs=None)
 pyro.observe("obs1", dist.Bernoulli(fairness), data)
 observe("obs2", Bernoulli(fairness), data)
 """
@@ -25,20 +25,35 @@ def is_obs_keyword(k):
         return False
     return True
 
+def is_name(x):
+    return isinstance(x, ast.Name)
+
+def is_attribute(x):
+    return isinstance(x, ast.Attribute)
+
+def get_class(name):
+    return globals()[name]
+
+def print_dist_info(dist, sample_name):
+    params = get_class(dist).params.items()
+    print("Found non-obs sample statement <<%s>> with distribution of type %s (has_rsample = %s)" % (sample_name,
+          dist, get_class(dist).has_rsample))
+    for p, c in params:
+        print("Has parameter %s with constraint %s %f" % (p, type(c).__name__, c.lower_bound))
+
 def print_sample_info(node):
     dist_arg = node.args[1]
     sample_name = node.args[0].s
-    if isinstance(dist_arg.func, ast.Attribute):
-        if isinstance(dist_arg.func.value, ast.Name):
-            dist = dist_arg.func.attr
-            result = globals()[dist].params.items()
-            print("Found non-obs sample statement <<%s>> with distribution of type %s" % (sample_name, dist))
-            for p, c in result:
-                print("Has parameter %s with constraint %s %f" % (p, type(c).__name__, c.lower_bound))
+    if is_attribute(dist_arg.func):
+        if is_name(dist_arg.func.value):
+            print_dist_info(dist_arg.func.attr, sample_name)
+    elif is_name(dist_arg.func):
+        dist = dist_arg.func.id
+        print_dist_info(dist_arg.func.id, sample_name)
 
 class RemoveObserves(ast.NodeTransformer):
     def visit_Call(self, node):
-        if isinstance(node.func, ast.Name):
+        if is_name(node.func):
             if node.func.id=="observe":
                 return None
             elif node.func.id=="sample":
@@ -47,8 +62,8 @@ class RemoveObserves(ast.NodeTransformer):
                 else:
                     print_sample_info(node)
 
-        elif isinstance(node.func, ast.Attribute):
-            if isinstance(node.func.value, ast.Name):
+        elif is_attribute(node.func):
+            if is_name(node.func.value):
                 if node.func.attr=="observe":
                     return None
                 elif node.func.attr=="sample":
