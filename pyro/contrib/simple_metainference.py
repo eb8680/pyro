@@ -10,6 +10,7 @@ from pyro.poutine.block_poutine import BlockMessenger
 import pyro.infer
 import pyro.optim
 import pyro.distributions.torch as dist
+import pyro.distributions as pyrodist
 
 
 class BetaBernoulliExample(object):
@@ -24,15 +25,15 @@ class BetaBernoulliExample(object):
         self.log_beta_q_0 = Variable(torch.Tensor([np.log(15.0)]), requires_grad=True)
 
     def model(self):
-        f = pyro.sample("latent_fairness", dist.beta.Beta(self.alpha0, self.beta0))
+        f = pyro.sample("latent_fairness", dist.Beta(self.alpha0, self.beta0))
         with pyro.iarange("data_iarange"):
-            pyro.observe("obs", dist.bernoulli.Bernoulli(f), self.data)
+            pyro.observe("obs", dist.Bernoulli(f), self.data)
 
     def guide(self):
         log_alpha_q = pyro.param("log_alpha_q", self.log_alpha_q_0)
         log_beta_q = pyro.param("log_beta_q", self.log_beta_q_0)
         alpha_q, beta_q = torch.exp(log_alpha_q), torch.exp(log_beta_q)
-        pyro.sample("latent_fairness", dist.beta.Beta(alpha_q, beta_q))
+        pyro.sample("latent_fairness", dist.Beta(alpha_q, beta_q))
 
 
 class InferenceWrapper(object):
@@ -41,10 +42,9 @@ class InferenceWrapper(object):
 
         self.model_guide_pair = model_guide_pair
         self.lam_steps = lam_steps
+        self.num_steps = pyro.sample("num_steps", pyrodist.Poisson(self.lam_steps))
 
     def sample(self, *args, **kwargs):
-
-        num_steps = pyro.sample("num_steps", dist.poisson.Poisson(self.lam_steps))
 
         optimizer = pyro.optim.Adam({"lr": .0008, "betas": (0.93, 0.999)})
         with BlockMessenger():
@@ -53,12 +53,12 @@ class InferenceWrapper(object):
             svi = pyro.infer.SVI(self.model_guide_pair.model,
                                  self.model_guide_pair.guide,
                                  optimizer, loss="ELBO")
-            for i in range(int(num_steps.data[0])):
+            for i in range(int(self.num_steps.data[0])):
                 svi.step(*args, **kwargs)
 
             loss = svi.evaluate_loss(*args, **kwargs)
             # hack: penalize long inference runs
-            return loss / np.exp(num_steps.data[0] / 500.0)
+            return loss / np.exp(self.num_steps.data[0] / 500.0)
 
     __call__ = sample
 
@@ -67,15 +67,15 @@ class InferenceWrapper(object):
 
 
 def model(model_guide_pair):
-    lam = Variable(torch.Tensor([10.0]))
+    lam = Variable(torch.Tensor([100.0]))
     inference_problem = InferenceWrapper(model_guide_pair, lam)
     elbo = pyro.sample("infer", inference_problem)
-    pyro.sample("inner_elbo", dist.bernoulli.Bernoulli(Variable(torch.Tensor([elbo]))),
+    pyro.sample("inner_elbo", dist.Bernoulli(Variable(torch.Tensor([elbo]))),
                 obs=Variable(torch.ones(1)))
 
 
 def guide(model_guide_pair):
-    lam = Variable(torch.Tensor([10.0]))
+    lam = Variable(torch.Tensor([100.0]))
     inference_problem = InferenceWrapper(model_guide_pair, lam)
     elbo = pyro.sample("infer", inference_problem)
     return elbo
@@ -84,10 +84,17 @@ def guide(model_guide_pair):
 def main():
     model_guide_pair = BetaBernoulliExample()
 
-    meta_infer = pyro.infer.Importance(model, guide, num_samples=10)
+    meta_infer = pyro.infer.Importance(model, guide, num_samples=50)
 
-    print(meta_infer(model_guide_pair).nodes)
-
+    mean = 0.0
+    denom = 0.0
+    traces = meta_infer._traces(model_guide_pair)
+    for trace, log_weight in traces:
+        num = trace.nodes['num_steps']['value']
+        mean += num * torch.exp(log_weight)
+        denom += torch.exp(log_weight)
+    mean /= denom
+    print("mean num steps:", mean.data[0])
 
 if __name__ == "__main__":
     main()
