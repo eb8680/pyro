@@ -1,20 +1,36 @@
 import torch
 import pyro
 import pyro.distributions as dist
+import pyro.poutine as poutine
 from torch.distributions import Beta, Bernoulli, Gamma
+from torch.autograd import Variable
 import ast
 import astor
+import inspect
 
 model = r"""
-alpha0 = Variable(torch.Tensor([10.0]))
-beta0 = Variable(torch.Tensor([10.0]))
+alpha0 = pyro.param("alpha0", Variable(torch.Tensor([10.0])))
+beta0 = pyro.param("beta0", Variable(torch.Tensor([10.0])))
+alpha00 = pyro.param("alpha00", Variable(torch.Tensor([20.0])))
+beta00 = pyro.param("beta00", Variable(torch.Tensor([20.0])))
 fairness = pyro.sample("latent", dist.Beta(alpha0, beta0))
-f2 = sample("latent2", dist.Gamma(alpha00, beta00))
-fairness = pyro.sample("latent", dist.Beta(alpha0, beta0), obs=data)
-f3 = pyro.sample("latent3", Gamma(alpha000, beta000), obs=None)
+f2 = pyro.sample("latent2", dist.Gamma(alpha00, beta00))
+fairness = pyro.sample("latent3", dist.Beta(alpha0, beta0), obs=data)
 pyro.observe("obs1", dist.Bernoulli(fairness), data)
-observe("obs2", Bernoulli(fairness), data)
+blah = Variable(torch.ones(torch.Size()))
 """
+
+def callable_model(data=Variable(torch.ones(1))):
+    alpha0 = pyro.param("alpha0", Variable(torch.Tensor([10.0])))
+    beta0 = pyro.param("beta0", Variable(torch.Tensor([10.0])))
+    alpha00 = pyro.param("alpha00", Variable(torch.Tensor([20.0])))
+    beta00 = pyro.param("beta00", Variable(torch.Tensor([20.0])))
+    fairness = pyro.sample("latent", dist.Beta(alpha0, beta0))
+    f2 = pyro.sample("latent2", dist.Gamma(alpha00, beta00))
+    fairness = pyro.sample("latent3", dist.Beta(alpha0, beta0), obs=data)
+    pyro.observe("obs1", dist.Bernoulli(fairness), data)
+    pyro.observe("obs2", Bernoulli(fairness), data)
+
 
 def is_obs_keyword(k):
     if k.arg != 'obs':
@@ -40,7 +56,7 @@ def get_class(name):
 def print_dist_info(dist, sample_name):
     params = get_class(dist).params.items()
     print("Found non-obs sample statement <<%s>> with distribution of type %s (has_rsample = %s)" % (sample_name,
-          dist, get_class(dist).has_rsample))
+        dist, get_class(dist).has_rsample))
     for p, c in params:
         print("Has parameter %s with constraint %s %f" % (p, type(c).__name__, c.lower_bound))
 
@@ -118,8 +134,15 @@ def contains_param(start_node, target_param):
     return False
 
 class AddInitializers(ast.NodeTransformer):
-    def __init__(self, params_to_initialize):
+    def __init__(self, params_to_initialize, callable_model):
         self.params_to_initialize = params_to_initialize
+        self.param_info = {}
+
+        model_trace = poutine.trace(callable_model, graph_type="flat").get_trace()
+        for site in model_trace.nodes.values():
+            if site["type"] == "param":
+                name = site['name']
+                self.param_info[name] = tuple(site['value'].shape)
 
     def visit_Module(self, node):
         new_assigns = []
@@ -128,9 +151,23 @@ class AddInitializers(ast.NodeTransformer):
             for statement in self.params_to_initialize:
                 for param in statement:
                     if contains_param(line, param):
+                        size_tuple = self.param_info[param[:-2]]
+                        size_tuple_elts = [ast.Num(n=x) for x in size_tuple]
                         new_assign = ast.Assign(targets=[ast.Name(id=param)],
-                                                value=ast.Call(func=ast.Attribute(value=ast.Name(id='pyro'), attr='magic_initializer'),
-                                                           args=[], keywords=[], starargs=None, kwargs=None))
+                                value=ast.Call(func=ast.Name(id='Variable'),
+                                               args=[
+                                                     ast.Call(func=ast.Attribute(value=ast.Name(id='torch'), attr='ones'),
+                                    args=[ast.Call(func=ast.Attribute(value=ast.Name(id='torch'), attr='Size'),
+                                                   args=[ast.Tuple(elts=size_tuple_elts)],
+						   keywords=[],
+						   starargs=None,
+						   kwargs=None)],
+						keywords=[],
+						starargs=None,
+						kwargs=None)],
+					    keywords=[ast.keyword(arg='requires_grad', value=ast.NameConstant(value=True))],
+					    starargs=None,
+					    kwargs=None))
                         new_assigns.append(new_assign)
 
         for new_assign in new_assigns:
@@ -148,7 +185,7 @@ if 0:
 ro = RemoveObserves()
 tree = ro.visit(tree)
 tree = RemoveEmpties().visit(tree)
-tree = AddInitializers(ro.params_to_initialize).visit(tree)
+tree = AddInitializers(ro.params_to_initialize, callable_model).visit(tree)
 if 0:
     print("\nModified Model AST:\n")
     print(astor.dump(tree), end='\n')
