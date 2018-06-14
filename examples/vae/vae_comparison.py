@@ -1,6 +1,7 @@
 import argparse
 import itertools
 import os
+import time
 from abc import ABCMeta, abstractmethod
 
 import torch
@@ -10,6 +11,7 @@ from torch.nn import functional
 from torchvision.utils import save_image
 
 import pyro
+import pyro.poutine as poutine
 from pyro.contrib.examples import util
 from pyro.distributions import Bernoulli, Normal
 from pyro.infer import SVI, Trace_ELBO
@@ -31,11 +33,11 @@ OUTPUT_DIR = RESULTS_DIR
 
 # VAE encoder network
 class Encoder(nn.Module):
-    def __init__(self):
+    def __init__(self, hidden_size, latent_size):
         super(Encoder, self).__init__()
-        self.fc1 = nn.Linear(784, 400)
-        self.fc21 = nn.Linear(400, 20)
-        self.fc22 = nn.Linear(400, 20)
+        self.fc1 = nn.Linear(784, hidden_size)
+        self.fc21 = nn.Linear(hidden_size, latent_size)
+        self.fc22 = nn.Linear(hidden_size, latent_size)
         self.relu = nn.ReLU()
 
     def forward(self, x):
@@ -46,10 +48,10 @@ class Encoder(nn.Module):
 
 # VAE Decoder network
 class Decoder(nn.Module):
-    def __init__(self):
+    def __init__(self, hidden_size, latent_size):
         super(Decoder, self).__init__()
-        self.fc3 = nn.Linear(20, 400)
-        self.fc4 = nn.Linear(400, 784)
+        self.fc3 = nn.Linear(latent_size, hidden_size)
+        self.fc4 = nn.Linear(hidden_size, 784)
         self.sigmoid = nn.Sigmoid()
         self.relu = nn.ReLU()
 
@@ -67,8 +69,11 @@ class VAE(object):
 
     def __init__(self, args, train_loader, test_loader):
         self.args = args
-        self.vae_encoder = Encoder()
-        self.vae_decoder = Decoder()
+        device = torch.device("cuda" if args.cuda else "cpu")
+        self.hidden_size = args.hidden_size
+        self.latent_size = args.latent_size
+        self.vae_encoder = Encoder(self.hidden_size, self.latent_size).to(device)
+        self.vae_decoder = Decoder(self.hidden_size, self.latent_size).to(device)
         self.train_loader = train_loader
         self.test_loader = test_loader
         self.mode = TRAIN
@@ -109,19 +114,21 @@ class VAE(object):
             z = z_mean
         return self.vae_decoder(z), z_mean, z_var
 
-    def train(self, epoch):
+    def train(self, epoch, device):
         self.set_train(is_train=True)
         train_loss = 0
         for batch_idx, (x, _) in enumerate(self.train_loader):
+            x = x.to(device)
             loss = self.compute_loss_and_gradient(x)
             train_loss += loss
         print('====> Epoch: {} \nTraining loss: {:.4f}'.format(
             epoch, train_loss / len(self.train_loader.dataset)))
 
-    def test(self, epoch):
+    def test(self, epoch, device):
         self.set_train(is_train=False)
         test_loss = 0
         for i, (x, _) in enumerate(self.test_loader):
+            x = x.to(device)
             with torch.no_grad():
                 recon_x = self.model_eval(x)[0]
                 test_loss += self.compute_loss_and_gradient(x)
@@ -150,11 +157,12 @@ class PyTorchVAEImpl(VAE):
     def compute_loss_and_gradient(self, x):
         self.optimizer.zero_grad()
         recon_x, z_mean, z_var = self.model_eval(x)
-        binary_cross_entropy = functional.binary_cross_entropy(recon_x, x.reshape(-1, 784))
+        binary_cross_entropy = functional.binary_cross_entropy_with_logits(recon_x.log(), x.reshape(-1, 784))
         # Uses analytical KL divergence expression for D_kl(q(z|x) || p(z))
         # Refer to Appendix B from VAE paper:
         # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
         # (https://arxiv.org/abs/1312.6114)
+        # z = Normal(z_mean, z_var).sample()
         kl_div = -0.5 * torch.sum(1 + z_var.log() - z_mean.pow(2) - z_var)
         kl_div /= self.args.batch_size * 784
         loss = binary_cross_entropy + kl_div
@@ -179,16 +187,17 @@ class PyroVAEImpl(VAE):
         super(PyroVAEImpl, self).__init__(*args, **kwargs)
         self.optimizer = self.initialize_optimizer(lr=1e-3)
 
+    @poutine.broadcast
     def model(self, data):
         decoder = pyro.module('decoder', self.vae_decoder)
-        z_mean, z_std = torch.zeros([data.size(0), 20]), torch.ones([data.size(0), 20])
         with pyro.iarange('data', data.size(0)):
-            z = pyro.sample('latent', Normal(z_mean, z_std).independent(1))
+            z = pyro.sample('latent', Normal(torch.tensor(0., device=torch.device("cuda" if self.args.cuda else "cpu")), torch.tensor(1., device=torch.device("cuda" if self.args.cuda else "cpu"))).expand(1).independent(1))
             img = decoder.forward(z)
             pyro.sample('obs',
                         Bernoulli(img).independent(1),
                         obs=data.reshape(-1, 784))
 
+    @poutine.broadcast
     def guide(self, data):
         encoder = pyro.module('encoder', self.vae_encoder)
         with pyro.iarange('data', data.size(0)):
@@ -229,6 +238,7 @@ def setup(args):
 
 
 def main(args):
+    device = torch.device("cuda" if args.cuda else "cpu")
     train_loader, test_loader = setup(args)
     if args.impl == 'pyro':
         vae = PyroVAEImpl(args, train_loader, test_loader)
@@ -238,19 +248,32 @@ def main(args):
         print('Running PyTorch VAE implementation')
     else:
         raise ValueError('Incorrect implementation specified: {}'.format(args.impl))
+    times = [time.time()]
+    epoch_times = []
     for i in range(args.num_epochs):
-        vae.train(i)
+        vae.train(i, device)
+        times.append(time.time())
+        epoch_time = times[-1] - times[-2]
+        epoch_times += [epoch_time]
+        print("[training epoch %04d]  (dt = %.3f sec)" %
+              (i, epoch_time))
         if not args.skip_eval:
-            vae.test(i)
+            vae.test(i, device)
+    avg_time = torch.mean(torch.tensor(epoch_times))
+    std_time = torch.std(torch.tensor(epoch_times))
+    print("avg epoch time (s): {} +- {}".format(avg_time, std_time))
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='VAE using MNIST dataset')
     parser.add_argument('-n', '--num-epochs', nargs='?', default=10, type=int)
     parser.add_argument('--batch_size', nargs='?', default=128, type=int)
+    parser.add_argument('--hidden_size', nargs='?', default=400, type=int)
+    parser.add_argument('--latent_size', nargs='?', default=20, type=int)
     parser.add_argument('--rng_seed', nargs='?', default=0, type=int)
     parser.add_argument('--impl', nargs='?', default='pyro', type=str)
     parser.add_argument('--skip_eval', action='store_true')
+    parser.add_argument('--cuda', action='store_true')
     parser.set_defaults(skip_eval=False)
     args = parser.parse_args()
     main(args)
