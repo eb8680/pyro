@@ -117,12 +117,19 @@ class VAE(object):
     def train(self, epoch, device):
         self.set_train(is_train=True)
         train_loss = 0
+        avg_step_time = 0
         for batch_idx, (x, _) in enumerate(self.train_loader):
             x = x.to(device)
+            torch.set_default_tensor_type(torch.cuda.FloatTensor)
+            time0 = time.perf_counter()
             loss = self.compute_loss_and_gradient(x)
+            torch.cuda.synchronize()
+            avg_step_time += time.perf_counter() - time0
             train_loss += loss
-        print('====> Epoch: {} \nTraining loss: {:.4f}'.format(
-            epoch, train_loss / len(self.train_loader.dataset)))
+            torch.set_default_tensor_type(torch.FloatTensor)
+        avg_step_time /= batch_idx / 1000
+        print('====> Epoch: {} \nTraining loss: {:.4f}, step time (ms): {}'.format(
+            epoch, train_loss / len(self.train_loader.dataset), avg_step_time))
 
     def test(self, epoch, device):
         self.set_train(is_train=False)
@@ -218,11 +225,14 @@ class PyroVAEImpl(VAE):
 
 
 def setup(args):
+    pyro.enable_validation(False)
     pyro.set_rng_seed(args.rng_seed)
     train_loader = util.get_data_loader(dataset_name='MNIST',
                                         data_dir=DATA_DIR,
                                         batch_size=args.batch_size,
                                         is_training_set=True,
+                                        pin_memory=args.cuda,
+                                        num_workers=0,
                                         shuffle=True)
     test_loader = util.get_data_loader(dataset_name='MNIST',
                                        data_dir=DATA_DIR,
