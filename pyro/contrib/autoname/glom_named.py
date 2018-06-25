@@ -34,6 +34,7 @@ class NameRewriter(gast.NodeTransformer):
         new_node.ctx = gast.Load()
         ir_src = textwrap.dedent(astor.to_source(gast.gast_to_ast(
             gast.fix_missing_locations(new_node))))
+        # _TTT gets converted to T, so T.expr gets converted to expr here
         return gast.parse("str(_TTT." + ir_src + ")[2:]").body[0].value
 
     def visit_FunctionDef(self, node):
