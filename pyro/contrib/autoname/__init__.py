@@ -6,9 +6,11 @@ from __future__ import absolute_import, division, print_function
 
 from pyro.contrib.autoname import named
 from pyro.contrib.autoname.glom_named import glom_name
+from pyro.contrib.autoname.scoping import scope
 
 
 __all__ = [
     "glom_name",
     "named",
+    "scope"
 ]
