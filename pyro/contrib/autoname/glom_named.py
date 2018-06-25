@@ -1,8 +1,10 @@
 import copy
 from glom import T as _TTT  # noqa: F401
+import astor
 import gast
+import inspect
 import functools
-from .compilation import quote, unquote, compile_function, parse_function
+import textwrap
 
 
 class PrimitiveDetector(gast.NodeVisitor):
@@ -30,10 +32,13 @@ class NameRewriter(gast.NodeTransformer):
     def _make_glom(self, node):
         new_node = copy.copy(node)
         new_node.ctx = gast.Load()
-        return quote("str(_TTT." + unquote(new_node) + ")[2:]")
+        ir_src = textwrap.dedent(astor.to_source(gast.gast_to_ast(
+            gast.fix_missing_locations(new_node))))
+        return gast.parse("str(_TTT." + ir_src + ")[2:]").body[0].value
 
     def visit_FunctionDef(self, node):
         node = self.generic_visit(node)
+
         def is_glom_decorator(d):
             if isinstance(d, gast.Name):
                 return d.id == 'glom_name'
@@ -57,6 +62,8 @@ class NameRewriter(gast.NodeTransformer):
 
 
 def glom_name(fn):
-    node = NameRewriter().visit(parse_function(fn))
+    node = NameRewriter().visit(gast.parse(textwrap.dedent(inspect.getsource(fn))))
     fn.__globals__.update({"_TTT": _TTT})
-    return functools.wraps(fn)(compile_function(node, globals_=fn.__globals__))
+    exec(astor.to_source(gast.gast_to_ast(gast.fix_missing_locations(node))),
+         fn.__globals__)  # XXX gross
+    return functools.wraps(fn)(fn.__globals__[fn.__code__.co_name])

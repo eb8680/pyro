@@ -9,7 +9,7 @@ from pyro.contrib.autoname import glom_name
 
 class B(object):
     def __init__(self):
-        b = 3
+        self.b = 3
 
 
 def test_dynamic_simple():
