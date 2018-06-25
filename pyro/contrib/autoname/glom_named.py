@@ -66,4 +66,5 @@ def glom_name(fn):
     fn.__globals__.update({"_TTT": _TTT})
     exec(astor.to_source(gast.gast_to_ast(gast.fix_missing_locations(node))),
          fn.__globals__)  # XXX gross...
-    return functools.wraps(fn)(fn.__globals__[fn.__code__.co_name])
+    # return functools.wraps(fn)(fn.__globals__[fn.__code__.co_name])
+    return fn.__globals__[fn.__code__.co_name]

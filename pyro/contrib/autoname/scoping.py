@@ -48,7 +48,7 @@ class ScopeMessenger(Messenger):
 
     def __call__(self, fn):
         if self.prefix is None:
-            self.prefix = fn.__code__.co_name  # fn.__name__
+            self.prefix = fn.__name__
 
         @functools.wraps(fn)
         def _fn(*args, **kwargs):

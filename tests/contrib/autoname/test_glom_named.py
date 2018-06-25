@@ -1,10 +1,12 @@
+import pytest
+
 import pyro
 import pyro.distributions as dist
 import pyro.poutine as poutine
 
 from glom import T
 
-from pyro.contrib.autoname import glom_name
+from pyro.contrib.autoname import glom_name, scope
 
 
 class B(object):
@@ -113,3 +115,48 @@ def test_dynamic_simple_class():
     print(tr.nodes)
 
     assert actual_names == expected_names
+
+
+def test_glom_and_scope_simple_with():
+
+    @glom_name
+    def f1():
+        with scope(prefix="f1"):
+            x = pyro.sample(dist.Bernoulli(0.5))
+            return x
+
+    @glom_name
+    def f2():
+        f1()
+        y = pyro.sample(dist.Bernoulli(0.5))
+        return y
+
+    tr1 = poutine.trace(f1, strict_names=False).get_trace()
+    assert "f1/T.x" in tr1.nodes
+
+    tr2 = poutine.trace(f2, strict_names=False).get_trace()
+    assert "f1/T.x" in tr2.nodes
+    assert "T.y" in tr2.nodes
+
+
+@pytest.mark.xfail(reason="scope getting applied to f1 twice?")
+def test_glom_and_scope_simple_decorator():
+
+    @scope
+    @glom_name
+    def f1():
+        x = pyro.sample(dist.Bernoulli(0.5))
+        return x
+
+    @glom_name
+    def f2():
+        f1()
+        y = pyro.sample(dist.Bernoulli(0.5))
+        return y
+
+    tr1 = poutine.trace(f1, strict_names=False).get_trace()
+    assert "f1/T.x" in tr1.nodes
+
+    tr2 = poutine.trace(f2, strict_names=False).get_trace()
+    assert "f1/T.x" in tr2.nodes
+    assert "T.y" in tr2.nodes
