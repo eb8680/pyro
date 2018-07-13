@@ -1,17 +1,9 @@
 from __future__ import absolute_import, division, print_function
 
-import warnings
 from six.moves import xrange
 
-import torch
-from torch.distributions.utils import broadcast_all
-
-import pyro
 import pyro.poutine as poutine
-from pyro.distributions.util import is_identically_zero
 from pyro.infer.enum import config_enumerate, iter_discrete_traces
-from pyro.infer.util import Dice, is_validation_enabled
-from pyro.util import check_model_guide_match, check_site_shape, check_traceenum_requirements, warn_if_nan
 
 from .abstract_infer import TracePosterior
 
