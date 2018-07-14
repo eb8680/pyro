@@ -40,12 +40,17 @@ def test_dependent_hmm_categorical(num_steps):
     tr = poutine.trace(
         DependentEnumerateMessenger(first_available_dim=0)(model)
     ).get_trace(data)
+    tr.compute_log_prob()
 
     i = 0
     for name, node in tr.nodes.items():
         if node["type"] == "sample":
             if not node["is_observed"]:
                 assert node["value"].shape == (2,) + (1,) * i
+                if i == 0:
+                    assert node["log_prob"].shape == (2,)
+                else:
+                    assert node["log_prob"].shape == (2, 2) + (1,) * (i-1)
                 i += 1
 
 
@@ -71,10 +76,14 @@ def test_dependent_hmm_bernoulli(num_steps):
     tr = poutine.trace(
         DependentEnumerateMessenger(first_available_dim=0)(model)
     ).get_trace(data)
+    tr.compute_log_prob()
 
     i = 0
     for name, node in tr.nodes.items():
         if node["type"] == "sample":
             if not node["is_observed"]:
-                assert node["value"].shape == (2,) + (1,) * i
+                if i == 0:
+                    assert node["log_prob"].shape == (2,)
+                else:
+                    assert node["log_prob"].shape == (2, 2) + (1,) * (i-1)
                 i += 1
