@@ -52,3 +52,22 @@ class EnumerateMessenger(Messenger):
 
             msg["value"] = value
             msg["done"] = True
+
+
+class DependentEnumerateMessenger(EnumerateMessenger):
+    """
+    Dependent enumeration messenger.
+    """
+    def _make_dist(self, fn):
+        assert getattr(fn, "has_enumerate_support", True)
+        assert hasattr(fn, "logits")
+        shape = fn.logits.shape[-self.first_available_dim-fn.event_dim-1:]
+        logits = fn.logits.new_ones(shape)
+        return type(fn)(logits=logits)
+
+    def _pyro_sample(self, msg):
+        _fn = msg["fn"]
+        if msg["infer"].get("enumerate") == "parallel" and not msg["is_observed"]:
+            msg["fn"] = self._make_dist(msg["fn"])
+        super(DependentEnumerateMessenger, self)._pyro_sample(msg)
+        msg["fn"] = _fn
