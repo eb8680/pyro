@@ -52,6 +52,8 @@ def test_dependent_hmm_categorical(num_steps):
                 else:
                     assert node["log_prob"].shape == (2, 2) + (1,) * (i-1)
                 i += 1
+            else:
+                assert node["log_prob"].shape == (2,) + (1,) * (i-1)
 
 
 @pytest.mark.parametrize("num_steps", [2, 3, 10, 20])
@@ -86,4 +88,7 @@ def test_dependent_hmm_bernoulli(num_steps):
                     assert node["log_prob"].shape == (2,)
                 else:
                     assert node["log_prob"].shape == (2, 2) + (1,) * (i-1)
+
                 i += 1
+            else:
+                assert node["log_prob"].shape == (2,) + (1,) * (i-1)
