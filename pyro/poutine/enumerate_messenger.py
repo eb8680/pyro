@@ -61,12 +61,19 @@ class DependentEnumerateMessenger(EnumerateMessenger):
     def _make_dist(self, fn):
         assert getattr(fn, "has_enumerate_support", True)
         assert hasattr(fn, "logits")
-        shape = fn.logits.shape[-self.first_available_dim-fn.event_dim-1:]
+        if type(fn).__name__ == "Categorical":
+            # TODO not correct shape in general case
+            shape = fn.logits.shape[-self.first_available_dim-fn.event_dim-1:]
+        elif type(fn).__name__ == "Bernoulli":
+            shape = fn.logits.shape[-self.first_available_dim:-fn.event_dim]
+        else:
+            raise TypeError("cannot dependently enumerate {}".format(type(fn)))
         logits = fn.logits.new_ones(shape)
         return type(fn)(logits=logits)
 
     def _pyro_sample(self, msg):
         _fn = msg["fn"]
+        # import pdb; pdb.set_trace()
         if msg["infer"].get("enumerate") == "parallel" and not msg["is_observed"]:
             msg["fn"] = self._make_dist(msg["fn"])
         super(DependentEnumerateMessenger, self)._pyro_sample(msg)
