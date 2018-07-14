@@ -11,26 +11,18 @@ import pyro.distributions as dist
 import pyro.optim
 import pyro.poutine as poutine
 from pyro.poutine.enumerate_messenger import DependentEnumerateMessenger
-
-from pyro.infer import config_enumerate
-from tests.common import assert_equal
+from pyro.infer.enum import config_enumerate
 
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.parametrize("enumerate1,num_steps", [
-    ("parallel", 2),
-    ("parallel", 3),
-    ("parallel", 10),
-    ("parallel", 20),
-    pytest.param("parallel", 30, marks=pytest.mark.skip(reason="extremely expensive")),
-])
-def test_dependent_hmm(enumerate1, num_steps):
+@pytest.mark.parametrize("num_steps", [2, 3, 10, 20])
+def test_dependent_hmm(num_steps):
     pyro.clear_param_store()
     data = torch.ones(num_steps)
     init_probs = torch.tensor([0.5, 0.5])
 
-    @config_enumerate(default=enumerate1)
+    @config_enumerate(default="parallel")
     def model(data):
         transition_probs = pyro.param("transition_probs",
                                       torch.tensor([[0.75, 0.25], [0.25, 0.75]]),
