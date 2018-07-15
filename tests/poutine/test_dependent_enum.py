@@ -57,23 +57,31 @@ def test_dependent_hmm_categorical(num_steps):
 
 
 @pytest.mark.parametrize("num_steps", [2, 3, 10, 20])
-def test_dependent_hmm_bernoulli(num_steps):
+@pytest.mark.parametrize("event_shape", [()])
+def test_dependent_hmm_bernoulli(num_steps, event_shape):
     pyro.clear_param_store()
-    data = torch.ones(num_steps)
-    init_probs = torch.tensor(0.5)
+    data = torch.ones((num_steps,) + event_shape)
+    init_probs = torch.ones(event_shape) * 0.5
 
     @config_enumerate(default="parallel")
     def model(data):
         transition_probs = pyro.param("transition_probs",
-                                      torch.tensor([0.75, 0.25]))
+                                      torch.stack([
+                                          torch.ones(event_shape) * 0.75,
+                                          torch.ones(event_shape) * 0.25
+                                      ], -1))
         emission_probs = pyro.param("emission_probs",
-                                    torch.tensor([0.25, 0.75]))
+                                    torch.stack([
+                                        torch.ones(event_shape) * 0.75,
+                                        torch.ones(event_shape) * 0.25
+                                    ], -1))
 
         x = None
         for i, y in enumerate(data):
             probs = init_probs if x is None else transition_probs[x]
             x = pyro.sample("x_{}".format(i), dist.Bernoulli(probs)).long()
-            pyro.sample("y_{}".format(i), dist.Bernoulli(emission_probs[x]), obs=y)
+            pyro.sample("y_{}".format(i), dist.Bernoulli(emission_probs[x]),
+                        obs=y)
 
     tr = poutine.trace(
         DependentEnumerateMessenger(first_available_dim=0)(model)
@@ -85,10 +93,10 @@ def test_dependent_hmm_bernoulli(num_steps):
         if node["type"] == "sample":
             if not node["is_observed"]:
                 if i == 0:
-                    assert node["log_prob"].shape == (2,)
+                    assert node["log_prob"].shape == (2,) + event_shape
                 else:
-                    assert node["log_prob"].shape == (2, 2) + (1,) * (i-1)
+                    assert node["log_prob"].shape == (2, 2) + (1,) * (i-1) + event_shape
 
                 i += 1
             else:
-                assert node["log_prob"].shape == (2,) + (1,) * (i-1)
+                assert node["log_prob"].shape == (2,) + (1,) * (i-1) + event_shape
