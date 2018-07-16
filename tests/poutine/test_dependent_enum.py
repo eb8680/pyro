@@ -57,7 +57,10 @@ def test_dependent_hmm_categorical(num_steps):
 
 
 @pytest.mark.parametrize("num_steps", [2, 3, 10, 20])
-@pytest.mark.parametrize("event_shape", [()])
+@pytest.mark.parametrize("event_shape", [
+    (),
+    pytest.mark.xfail((3,), reason="non-empty event_shape not supported yet"),
+])
 def test_dependent_hmm_bernoulli(num_steps, event_shape):
     pyro.clear_param_store()
     data = torch.ones((num_steps,) + event_shape)
@@ -69,12 +72,12 @@ def test_dependent_hmm_bernoulli(num_steps, event_shape):
                                       torch.stack([
                                           torch.ones(event_shape) * 0.75,
                                           torch.ones(event_shape) * 0.25
-                                      ], -1))
+                                      ], 0))
         emission_probs = pyro.param("emission_probs",
                                     torch.stack([
                                         torch.ones(event_shape) * 0.75,
                                         torch.ones(event_shape) * 0.25
-                                    ], -1))
+                                    ], 0))
 
         x = None
         for i, y in enumerate(data):

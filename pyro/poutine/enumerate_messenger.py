@@ -57,6 +57,9 @@ class EnumerateMessenger(Messenger):
 class DependentEnumerateMessenger(EnumerateMessenger):
     """
     Dependent enumeration messenger.
+
+    Similar to EnumerateMessenger, but exploits independence structure
+    to save time and space.
     """
     def _make_dist(self, fn):
         """
@@ -68,6 +71,8 @@ class DependentEnumerateMessenger(EnumerateMessenger):
             shape = fn.logits.shape[-self.first_available_dim-fn.event_dim-1:]
         elif type(fn).__name__ == "Bernoulli":
             shape = fn.logits.shape[-self.first_available_dim:-fn.event_dim]
+        elif type(fn).__name__ == "ReshapedDistribution":
+            raise NotImplementedError("not yet implemented for ReshapedDistribution")
         else:
             raise TypeError("cannot dependently enumerate {}".format(type(fn)))
         logits = fn.logits.new_ones(shape)
