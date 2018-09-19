@@ -197,7 +197,7 @@ class PyroVAEImpl(VAE):
     def model(self, data):
         decoder = pyro.module('decoder', self.vae_decoder)
         with pyro.iarange('data', data.size(0)):
-            z = pyro.sample('latent', Normal(torch.tensor(0., device=torch.device("cuda" if self.args.cuda else "cpu")), torch.tensor(1., device=torch.device("cuda" if self.args.cuda else "cpu"))).expand(1).independent(1))
+            z = pyro.sample('latent', Normal(torch.tensor(0., device=torch.device("cuda" if self.args.cuda else "cpu")), torch.tensor(1., device=torch.device("cuda" if self.args.cuda else "cpu"))).expand([1]).independent(1))
             img = decoder.forward(z)
             pyro.sample('obs',
                         Bernoulli(img).independent(1),
