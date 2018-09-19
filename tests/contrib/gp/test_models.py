@@ -19,9 +19,7 @@ from pyro.infer.mcmc.mcmc import MCMC
 from pyro.params import param_with_module_name
 from tests.common import assert_equal
 
-logging.basicConfig(format='%(levelname)s %(message)s')
-logger = logging.getLogger('pyro')
-logger.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 
 T = namedtuple("TestGPModel", ["model_class", "X", "y", "kernel", "likelihood"])
 
@@ -189,12 +187,12 @@ def test_inference_sgpr():
     X = dist.Uniform(torch.zeros(N), torch.ones(N)*5).sample()
     y = 0.5 * torch.sin(3*X) + dist.Normal(torch.zeros(N), torch.ones(N)*0.5).sample()
     kernel = RBF(input_dim=1)
-    Xu = torch.arange(0, 5.5, 0.5)
+    Xu = torch.arange(0., 5.5, 0.5)
 
     sgpr = SparseGPRegression(X, y, kernel, Xu)
     sgpr.optimize(optim.Adam({"lr": 0.01}), num_steps=1000)
 
-    Xnew = torch.arange(0, 5.05, 0.05)
+    Xnew = torch.arange(0., 5.05, 0.05)
     loc, var = sgpr(Xnew, full_cov=False)
     target = 0.5 * torch.sin(3*Xnew)
 
@@ -207,12 +205,12 @@ def test_inference_vsgp():
     X = dist.Uniform(torch.zeros(N), torch.ones(N)*5).sample()
     y = 0.5 * torch.sin(3*X) + dist.Normal(torch.zeros(N), torch.ones(N)*0.5).sample()
     kernel = RBF(input_dim=1)
-    Xu = torch.arange(0, 5.5, 0.5)
+    Xu = torch.arange(0., 5.5, 0.5)
 
     vsgp = VariationalSparseGP(X, y, kernel, Xu, Gaussian())
     vsgp.optimize(optim.Adam({"lr": 0.03}), num_steps=1000)
 
-    Xnew = torch.arange(0, 5.05, 0.05)
+    Xnew = torch.arange(0., 5.05, 0.05)
     loc, var = vsgp(Xnew, full_cov=False)
     target = 0.5 * torch.sin(3*Xnew)
 
@@ -225,12 +223,12 @@ def test_inference_whiten_vsgp():
     X = dist.Uniform(torch.zeros(N), torch.ones(N)*5).sample()
     y = 0.5 * torch.sin(3*X) + dist.Normal(torch.zeros(N), torch.ones(N)*0.5).sample()
     kernel = RBF(input_dim=1)
-    Xu = torch.arange(0, 5.5, 0.5)
+    Xu = torch.arange(0., 5.5, 0.5)
 
     vsgp = VariationalSparseGP(X, y, kernel, Xu, Gaussian(), whiten=True)
     vsgp.optimize(optim.Adam({"lr": 0.01}), num_steps=1000)
 
-    Xnew = torch.arange(0, 5.05, 0.05)
+    Xnew = torch.arange(0., 5.05, 0.05)
     loc, var = vsgp(Xnew, full_cov=False)
     target = 0.5 * torch.sin(3*Xnew)
 
@@ -332,9 +330,10 @@ def _pre_test_mean_function():
     def f(x):
         return 2 * x + 3 + 5 * torch.sin(7 * x)
 
-    X = torch.arange(100)
+    tensor_holder = torch.tensor([])
+    X = tensor_holder.new_tensor(torch.arange(100.))
     y = f(X)
-    Xnew = torch.arange(100, 150)
+    Xnew = tensor_holder.new_tensor(torch.arange(100., 150.))
     ynew = f(Xnew)
 
     kernel = Cosine(input_dim=1)

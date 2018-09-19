@@ -2,6 +2,9 @@ from __future__ import absolute_import, division, print_function
 
 from collections import namedtuple
 
+import torch
+
+from pyro.util import ignore_jit_warnings
 from .messenger import Messenger
 
 
@@ -9,6 +12,20 @@ class CondIndepStackFrame(namedtuple("CondIndepStackFrame", ["name", "dim", "siz
     @property
     def vectorized(self):
         return self.dim is not None
+
+    def _key(self):
+        with ignore_jit_warnings(["Converting a tensor to a Python number"]):
+            size = self.size.item() if isinstance(self.size, torch.Tensor) else self.size
+            return self.name, self.dim, size, self.counter
+
+    def __eq__(self, other):
+        return type(self) == type(other) and self._key() == other._key()
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash(self._key())
 
 
 class IndepMessenger(Messenger):

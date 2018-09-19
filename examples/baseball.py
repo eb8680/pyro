@@ -11,7 +11,7 @@ import torch
 import pyro
 import pyro.poutine as poutine
 from pyro.distributions import Binomial, HalfCauchy, Normal, Uniform
-from pyro.distributions.util import log_sum_exp
+from pyro.distributions.util import logsumexp
 from pyro.infer import EmpiricalMarginal
 from pyro.infer.abstract_infer import TracePredictive
 from pyro.infer.mcmc import MCMC, NUTS
@@ -102,7 +102,7 @@ def partially_pooled(at_bats):
     """
     num_players = at_bats.shape[0]
     loc = pyro.sample("loc", Normal(at_bats.new_tensor(-1), at_bats.new_tensor(1)))
-    scale = pyro.sample("scale", HalfCauchy(at_bats.new_tensor(0), at_bats.new_tensor(1)))
+    scale = pyro.sample("scale", HalfCauchy(scale=at_bats.new_tensor(1)))
     alpha = pyro.sample("alpha", Normal(loc, scale).expand_by([num_players]).independent(1))
     return pyro.sample("obs", Binomial(at_bats, logits=alpha))
 
@@ -208,7 +208,7 @@ def evaluate_log_predictive_density(model, model_trace_posterior, baseball_datas
         trace_log_pdf.append(tr.log_prob_sum())
     # Use LogSumExp trick to evaluate $log(1/num_samples \sum_i p(new_data | \theta^{i})) $,
     # where $\theta^{i}$ are parameter samples from the model's posterior.
-    posterior_pred_density = log_sum_exp(torch.stack(trace_log_pdf)) - math.log(len(trace_log_pdf))
+    posterior_pred_density = logsumexp(torch.stack(trace_log_pdf), dim=-1) - math.log(len(trace_log_pdf))
     logging.info("\nLog posterior predictive density")
     logging.info("---------------------------------")
     logging.info("{:.4f}\n".format(posterior_pred_density))
@@ -218,7 +218,7 @@ def main(args):
     baseball_dataset = pd.read_csv(DATA_URL, "\t")
     train, _, player_names = train_test_split(baseball_dataset)
     at_bats, hits = train[:, 0], train[:, 1]
-    nuts_kernel = NUTS(conditioned_model, adapt_step_size=True)
+    nuts_kernel = NUTS(conditioned_model, adapt_step_size=True, jit_compile=args.jit)
     logging.info("Original Dataset:")
     logging.info(baseball_dataset)
 
@@ -270,5 +270,7 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--num-samples", nargs="?", default=1200, type=int)
     parser.add_argument("--warmup-steps", nargs='?', default=300, type=int)
     parser.add_argument("--rng_seed", nargs='?', default=0, type=int)
+    parser.add_argument('--jit', action='store_true', default=False,
+                        help='use PyTorch jit')
     args = parser.parse_args()
     main(args)

@@ -8,7 +8,7 @@ from torch.distributions import constraints
 
 from pyro.distributions.torch import Categorical
 from pyro.distributions.torch_distribution import TorchDistribution
-from pyro.distributions.util import copy_docs_from, log_sum_exp
+from pyro.distributions.util import copy_docs_from, logsumexp
 
 
 @copy_docs_from(TorchDistribution)
@@ -98,8 +98,8 @@ class Empirical(TorchDistribution):
 
         # Seed the container tensors with the correct tensor types
         if self._samples is None:
-            self._samples = value.new()
-            self._log_weights = log_weight.new()
+            self._samples = value.new_tensor([])
+            self._log_weights = log_weight.new_tensor([])
         # Append to the buffer list
         self._samples_buffer.append(value)
         self._weights_buffer.append(log_weight)
@@ -118,8 +118,8 @@ class Empirical(TorchDistribution):
         :param torch.Tensor value: scalar or tensor value to be scored.
         """
         if self._validate_args:
-            if value.size() != self.event_shape:
-                raise ValueError("``value.size()`` must be {}".format(self.event_shape))
+            if value.shape != self.event_shape:
+                raise ValueError("``value.shape`` must be {}".format(self.event_shape))
         self._finalize()
         selection_mask = self._samples.eq(value).contiguous().view(self.sample_size, -1)
         # Return -Inf if value is outside the support.
@@ -127,7 +127,7 @@ class Empirical(TorchDistribution):
             return self._log_weights.new_zeros(torch.Size()).log()
         idxs = torch.arange(self.sample_size)[selection_mask.min(dim=-1)[0]]
         log_probs = self._categorical.log_prob(idxs)
-        return log_sum_exp(log_probs)
+        return logsumexp(log_probs, dim=-1)
 
     def _weighted_mean(self, value, dim=0):
         weights = self._log_weights
@@ -141,7 +141,7 @@ class Empirical(TorchDistribution):
         self._finalize()
         if self._samples is None:
             return None
-        return self._samples.size()[1:]
+        return self._samples.shape[1:]
 
     @property
     def mean(self):
@@ -170,6 +170,7 @@ class Empirical(TorchDistribution):
         self._finalize()
         return self._samples, self._log_weights
 
-    def enumerate_support(self):
+    def enumerate_support(self, expand=True):
+        # Empirical does not support batching, so expanding is a no-op.
         self._finalize()
         return self._samples

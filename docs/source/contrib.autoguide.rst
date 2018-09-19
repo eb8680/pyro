@@ -67,6 +67,22 @@ AutoLowRankMultivariateNormal
     :special-members: __call__
     :show-inheritance:
 
+AutoIAFNormal
+-----------------------------
+.. autoclass:: pyro.contrib.autoguide.AutoIAFNormal
+    :members:
+    :undoc-members:
+    :special-members: __call__
+    :show-inheritance:
+
+AutoLaplaceApproximation
+-----------------------------
+.. autoclass:: pyro.contrib.autoguide.AutoLaplaceApproximation
+    :members:
+    :undoc-members:
+    :special-members: __call__
+    :show-inheritance:
+
 AutoDiscreteParallel
 --------------------
 .. autoclass:: pyro.contrib.autoguide.AutoDiscreteParallel

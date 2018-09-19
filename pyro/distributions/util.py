@@ -5,8 +5,13 @@ from contextlib import contextmanager
 
 import torch
 import torch.distributions as torch_dist
+from torch import logsumexp
+from torch.distributions.utils import broadcast_all
+
 
 _VALIDATION_ENABLED = False
+
+log_sum_exp = logsumexp  # DEPRECATED
 
 
 def copy_docs_from(source_class, full_text=False):
@@ -52,7 +57,11 @@ def is_identically_zero(x):
     Check if argument is exactly the number zero. True for the number zero;
     false for other numbers; false for :class:`~torch.Tensor`s.
     """
-    return isinstance(x, numbers.Number) and x == 0
+    if isinstance(x, numbers.Number):
+        return x == 0
+    elif isinstance(x, torch.Tensor) and x.dtype == torch.int64 and not x.shape:
+        return x.item() == 0
+    return False
 
 
 def is_identically_one(x):
@@ -60,7 +69,11 @@ def is_identically_one(x):
     Check if argument is exactly the number one. True for the number one;
     false for other numbers; false for :class:`~torch.Tensor`s.
     """
-    return isinstance(x, numbers.Number) and x == 1
+    if isinstance(x, numbers.Number):
+        return x == 1
+    elif isinstance(x, torch.Tensor) and x.dtype == torch.int64 and not x.shape:
+        return x.item() == 1
+    return False
 
 
 def broadcast_shape(*shapes, **kwargs):
@@ -146,70 +159,38 @@ def sum_leftmost(value, dim):
     return value.reshape(-1, *value.shape[dim:]).sum(0)
 
 
-def scale_tensor(tensor, scale):
+def scale_and_mask(tensor, scale=1.0, mask=None):
     """
-    Safely scale a tensor, avoiding NANs by assuming::
+    Scale and mask a tensor, broadcasting and avoiding unnecessary ops.
 
-        inf * 0 = 0 * inf = 0
+    :param tensor: an input tensor or zero
+    :type tensor: torch.Tensor or the number zero
+    :param scale: a positive scale
+    :type scale: torch.Tensor or number
+    :param mask: an optional masking tensor
+    :type mask: torch.ByteTensor or None
     """
-    # Check for trivial cases.
-    if isinstance(tensor, numbers.Number):
-        if tensor == 0:
-            if isinstance(scale, numbers.Number):
-                return 0.0
-            return scale.new_zeros(scale.shape)
-        if tensor == 1:
-            return scale
-    if isinstance(scale, numbers.Number):
-        if scale == 0:
-            if isinstance(tensor, numbers.Number):
-                return 0.0
-            return tensor.new_zeros(tensor.shape)
-        if scale == 1:
+    if not torch._C._get_tracing_state():
+        if is_identically_zero(tensor) or (mask is None and is_identically_one(scale)):
             return tensor
-
-    result = tensor * scale
-
-    # avoid NANs
-    if not isinstance(scale, numbers.Number):
-        result[(scale == 0).expand_as(result)] = 0
-    if not isinstance(tensor, numbers.Number):
-        result[(tensor == 0).expand_as(result)] = 0
-
-    return result
-
-
-def torch_sign(value):
-    """
-    Like :func:`torch.sign`` but also works for numbers.
-    """
-    if isinstance(value, numbers.Number):
-        return (value > 0) - (value < 0)
-    return torch.sign(value)
+    if mask is None:
+        return tensor * scale
+    tensor, mask = broadcast_all(tensor, mask)
+    tensor = tensor * scale  # triggers a copy, avoiding in-place op errors
+    if torch._C._get_tracing_state():
+        tensor[~mask] = 0.
+    else:
+        tensor.masked_fill_(~mask, 0.)
+    return tensor
 
 
-def matrix_triangular_solve_compat(b, A, upper=True):
-    """
-    Computes the solution to the linear equation AX = b,
-    where A is a triangular matrix.
-
-    :param b: A 1D or 2D tensor of size N or N x C.
-    :param A: A 2D tensor of size N X N.
-    :param upper: A flag if A is a upper triangular matrix or not.
-    """
-    return b.view(b.shape[0], -1).trtrs(A, upper=upper)[0].view(b.shape)
-
-
-def log_sum_exp(tensor, dim=-1):
-    """
-    Numerically stable implementation for the `LogSumExp` operation. The
-    summing is done along the dimension specified by ``dim``.
-
-    :param torch.Tensor tensor: Input tensor.
-    :param dim: Dimension to be summed out.
-    """
-    max_val = tensor.max(dim)[0]
-    return max_val + (tensor - max_val.unsqueeze(-1)).exp().sum(dim=dim).log()
+# work around lack of jit support for torch.eye(..., out=value)
+def eye_like(value, m, n=None):
+    if n is None:
+        n = m
+    eye = value.new_zeros(m, n)
+    eye.view(-1)[:min(m, n) * n:n + 1] = 1
+    return eye
 
 
 def enable_validation(is_validate):

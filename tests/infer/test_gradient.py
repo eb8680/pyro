@@ -9,44 +9,66 @@ import torch.optim
 
 import pyro
 import pyro.distributions as dist
+import pyro.poutine as poutine
 from pyro.distributions.testing import fakes
 from pyro.infer import (SVI, JitTrace_ELBO, JitTraceEnum_ELBO, JitTraceGraph_ELBO, Trace_ELBO, TraceEnum_ELBO,
-                        TraceGraph_ELBO)
+                        TraceGraph_ELBO, config_enumerate)
 from pyro.optim import Adam
-import pyro.poutine as poutine
 from tests.common import assert_equal, xfail_param
 
 logger = logging.getLogger(__name__)
 
 
+def DiffTrace_ELBO(*args, **kwargs):
+    return Trace_ELBO(*args, **kwargs).differentiable_loss
+
+
+@pytest.mark.parametrize("scale", [1., 2.], ids=["unscaled", "scaled"])
 @pytest.mark.parametrize("reparameterized", [True, False], ids=["reparam", "nonreparam"])
 @pytest.mark.parametrize("subsample", [False, True], ids=["full", "subsample"])
-@pytest.mark.parametrize("Elbo", [Trace_ELBO, TraceGraph_ELBO, TraceEnum_ELBO])
-def test_subsample_gradient(Elbo, reparameterized, subsample):
+@pytest.mark.parametrize("Elbo,local_samples", [
+    (Trace_ELBO, False),
+    (DiffTrace_ELBO, False),
+    (TraceGraph_ELBO, False),
+    (TraceEnum_ELBO, False),
+    (TraceEnum_ELBO, True),
+])
+def test_subsample_gradient(Elbo, reparameterized, subsample, local_samples, scale):
     pyro.clear_param_store()
     data = torch.tensor([-0.5, 2.0])
     subsample_size = 1 if subsample else len(data)
-    num_particles = 50000
-    precision = 0.06
+    precision = 0.06 * scale
     Normal = dist.Normal if reparameterized else fakes.NonreparameterizedNormal
 
+    @poutine.broadcast
     def model(subsample):
-        with pyro.iarange("particles", num_particles):
-            with pyro.iarange("data", len(data), subsample_size, subsample) as ind:
-                x = data[ind].unsqueeze(-1).expand(-1, num_particles)
-                z = pyro.sample("z", Normal(0, 1).expand_by(x.shape))
-                pyro.sample("x", Normal(z, 1), obs=x)
+        with pyro.iarange("data", len(data), subsample_size, subsample) as ind:
+            x = data[ind]
+            z = pyro.sample("z", Normal(0, 1))
+            pyro.sample("x", Normal(z, 1), obs=x)
 
+    @poutine.broadcast
     def guide(subsample):
         loc = pyro.param("loc", lambda: torch.zeros(len(data), requires_grad=True))
         scale = pyro.param("scale", lambda: torch.tensor([1.0], requires_grad=True))
-        with pyro.iarange("particles", num_particles):
-            with pyro.iarange("data", len(data), subsample_size, subsample) as ind:
-                loc_ind = loc[ind].unsqueeze(-1).expand(-1, num_particles)
-                pyro.sample("z", Normal(loc_ind, scale))
+        with pyro.iarange("data", len(data), subsample_size, subsample) as ind:
+            loc_ind = loc[ind]
+            pyro.sample("z", Normal(loc_ind, scale))
+
+    if scale != 1.0:
+        model = poutine.scale(model, scale=scale)
+        guide = poutine.scale(guide, scale=scale)
+
+    num_particles = 50000
+    if local_samples:
+        guide = config_enumerate(guide, default="parallel", num_samples=num_particles)
+        num_particles = 1
 
     optim = Adam({"lr": 0.1})
-    elbo = Elbo(strict_enumeration_warning=False)
+    elbo = Elbo(max_iarange_nesting=1,
+                num_particles=num_particles,
+                vectorize_particles=True,
+                strict_enumeration_warning=False)
     inference = SVI(model, guide, optim, loss=elbo)
     if subsample_size == 1:
         inference.loss_and_grads(model, guide, subsample=torch.LongTensor([0]))
@@ -54,10 +76,10 @@ def test_subsample_gradient(Elbo, reparameterized, subsample):
     else:
         inference.loss_and_grads(model, guide, subsample=torch.LongTensor([0, 1]))
     params = dict(pyro.get_param_store().named_parameters())
-    normalizer = 2 * num_particles / subsample_size
+    normalizer = 2 if subsample else 1
     actual_grads = {name: param.grad.detach().cpu().numpy() / normalizer for name, param in params.items()}
 
-    expected_grads = {'loc': np.array([0.5, -2.0]), 'scale': np.array([2.0])}
+    expected_grads = {'loc': scale * np.array([0.5, -2.0]), 'scale': scale * np.array([2.0])}
     for name in sorted(params):
         logger.info('expected {} = {}'.format(name, expected_grads[name]))
         logger.info('actual   {} = {}'.format(name, actual_grads[name]))
@@ -65,11 +87,11 @@ def test_subsample_gradient(Elbo, reparameterized, subsample):
 
 
 @pytest.mark.parametrize("reparameterized", [True, False], ids=["reparam", "nonreparam"])
-@pytest.mark.parametrize("Elbo", [Trace_ELBO, TraceGraph_ELBO, TraceEnum_ELBO])
+@pytest.mark.parametrize("Elbo", [Trace_ELBO, DiffTrace_ELBO, TraceGraph_ELBO, TraceEnum_ELBO])
 def test_iarange(Elbo, reparameterized):
     pyro.clear_param_store()
     data = torch.tensor([-0.5, 2.0])
-    num_particles = 20000
+    num_particles = 100000
     precision = 0.06
     Normal = dist.Normal if reparameterized else fakes.NonreparameterizedNormal
 
@@ -113,17 +135,67 @@ def test_iarange(Elbo, reparameterized):
 
 
 @pytest.mark.parametrize("reparameterized", [True, False], ids=["reparam", "nonreparam"])
+@pytest.mark.parametrize("Elbo", [Trace_ELBO, DiffTrace_ELBO, TraceGraph_ELBO, TraceEnum_ELBO])
+def test_iarange_elbo_vectorized_particles(Elbo, reparameterized):
+    pyro.clear_param_store()
+    data = torch.tensor([-0.5, 2.0])
+    num_particles = 200000
+    precision = 0.06
+    Normal = dist.Normal if reparameterized else fakes.NonreparameterizedNormal
+
+    @poutine.broadcast
+    def model():
+        data_iarange = pyro.iarange("data", len(data))
+
+        pyro.sample("nuisance_a", Normal(0, 1))
+        with data_iarange:
+            z = pyro.sample("z", Normal(0, 1))
+        pyro.sample("nuisance_b", Normal(2, 3))
+        with data_iarange:
+            pyro.sample("x", Normal(z, 1), obs=data)
+        pyro.sample("nuisance_c", Normal(4, 5))
+
+    @poutine.broadcast
+    def guide():
+        loc = pyro.param("loc", torch.zeros(len(data)))
+        scale = pyro.param("scale", torch.tensor([1.]))
+
+        pyro.sample("nuisance_c", Normal(4, 5))
+        with pyro.iarange("data", len(data)):
+            pyro.sample("z", Normal(loc, scale))
+        pyro.sample("nuisance_b", Normal(2, 3))
+        pyro.sample("nuisance_a", Normal(0, 1))
+
+    optim = Adam({"lr": 0.1})
+    loss = Elbo(max_iarange_nesting=1,
+                num_particles=num_particles,
+                vectorize_particles=True,
+                strict_enumeration_warning=False)
+    inference = SVI(model, guide, optim, loss=loss)
+    inference.loss_and_grads(model, guide)
+    params = dict(pyro.get_param_store().named_parameters())
+    actual_grads = {name: param.grad.detach().cpu().numpy()
+                    for name, param in params.items()}
+
+    expected_grads = {'loc': np.array([0.5, -2.0]), 'scale': np.array([2.0])}
+    for name in sorted(params):
+        logger.info('expected {} = {}'.format(name, expected_grads[name]))
+        logger.info('actual   {} = {}'.format(name, actual_grads[name]))
+    assert_equal(actual_grads, expected_grads, prec=precision)
+
+
+@pytest.mark.parametrize("reparameterized", [True, False], ids=["reparam", "nonreparam"])
 @pytest.mark.parametrize("subsample", [False, True], ids=["full", "subsample"])
 @pytest.mark.parametrize("Elbo", [
     Trace_ELBO,
     TraceGraph_ELBO,
     TraceEnum_ELBO,
     xfail_param(JitTrace_ELBO,
-                reason="jit RuntimeError: Unsupported op descriptor: index-2"),
+                reason="in broadcast_all: RuntimeError: expected int at position 0, but got: Tensor"),
     xfail_param(JitTraceGraph_ELBO,
-                reason="jit RuntimeError: Unsupported op descriptor: index-2"),
+                reason="in broadcast_all: RuntimeError: expected int at position 0, but got: Tensor"),
     xfail_param(JitTraceEnum_ELBO,
-                reason="jit RuntimeError: Unsupported op descriptor: index-2"),
+                reason="in broadcast_all: RuntimeError: expected int at position 0, but got: Tensor"),
 ])
 def test_subsample_gradient_sequential(Elbo, reparameterized, subsample):
     pyro.clear_param_store()

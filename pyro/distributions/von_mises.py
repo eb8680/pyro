@@ -45,6 +45,13 @@ class VonMises(TorchDistribution):
     """
     A circular von Mises distribution.
 
+    This implementation uses polar coordinates. The ``loc`` and ``value`` args
+    can be any real number (to facilitate unconstrained optimization), but are
+    interpreted as angles modulo 2 pi.
+
+    See :class:`~pyro.distributions.VonMises3D` for a 3D cartesian coordinate
+    cousin of this distribution.
+
     Currently only :meth:`log_prob` is implemented.
 
     :param torch.Tensor loc: an angle in radians.
@@ -65,7 +72,10 @@ class VonMises(TorchDistribution):
         return log_prob
 
     def expand(self, batch_shape):
-        validate_args = self.__dict__.get('validate_args')
-        loc = self.loc.expand(batch_shape)
-        concentration = self.concentration.expand(batch_shape)
-        return VonMises(loc, concentration, validate_args=validate_args)
+        try:
+            return super(VonMises, self).expand(batch_shape)
+        except NotImplementedError:
+            validate_args = self.__dict__.get('_validate_args')
+            loc = self.loc.expand(batch_shape)
+            concentration = self.concentration.expand(batch_shape)
+            return type(self)(loc, concentration, validate_args=validate_args)

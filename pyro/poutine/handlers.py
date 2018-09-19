@@ -54,26 +54,26 @@ from six.moves import xrange
 
 from pyro.poutine import util
 
-from .broadcast_messenger import BroadcastMessenger
 from .block_messenger import BlockMessenger
+from .broadcast_messenger import BroadcastMessenger
 from .condition_messenger import ConditionMessenger
 from .enumerate_messenger import EnumerateMessenger
 from .escape_messenger import EscapeMessenger
 from .indep_messenger import IndepMessenger
 from .infer_config_messenger import InferConfigMessenger
 from .lift_messenger import LiftMessenger
+from .mask_messenger import MaskMessenger
 from .replay_messenger import ReplayMessenger
 from .runtime import NonlocalExit
 from .scale_messenger import ScaleMessenger
 from .trace_messenger import TraceMessenger
-
 
 ############################################
 # Begin primitive operations
 ############################################
 
 
-def trace(fn=None, graph_type=None, param_only=None):
+def trace(fn=None, graph_type=None, param_only=None, strict_names=None):
     """
     Return a handler that records the inputs and outputs of primitive calls
     and their dependencies.
@@ -98,7 +98,7 @@ def trace(fn=None, graph_type=None, param_only=None):
     :param param_only: if true, only records params and not samples
     :returns: stochastic function decorated with a :class:`~pyro.poutine.trace_messenger.TraceMessenger`
     """
-    msngr = TraceMessenger(graph_type=graph_type, param_only=param_only)
+    msngr = TraceMessenger(graph_type=graph_type, param_only=param_only, strict_names=strict_names)
     return msngr(fn) if fn is not None else msngr
 
 
@@ -338,6 +338,20 @@ def scale(fn=None, scale=None):
     msngr = ScaleMessenger(scale=scale)
     # XXX temporary compatibility fix
     return msngr(fn) if callable(fn) else msngr
+
+
+def mask(fn=None, mask=None):
+    """
+    Given a stochastic function with some batched sample statements and
+    masking tensor, mask out some of the sample statements elementwise.
+
+    :param fn: a stochastic function (callable containing Pyro primitive calls)
+    :param torch.ByteTensor mask: a ``{0,1}``-valued masking tensor
+        (1 includes a site, 0 excludes a site)
+    :returns: stochastic function decorated with a :class:`~pyro.poutine.scale_messenger.MaskMessenger`
+    """
+    msngr = MaskMessenger(mask=mask)
+    return msngr(fn) if fn is not None else msngr
 
 
 def indep(fn=None, name=None, size=None, dim=None):

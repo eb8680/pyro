@@ -37,7 +37,9 @@ class NUTS(HMC):
     **References**
 
     [1] `The No-U-turn sampler: adaptively setting path lengths in Hamiltonian Monte Carlo`,
-    Matthew D. Hoffman, and Andrew Gelman
+    Matthew D. Hoffman, and Andrew Gelman.
+    [2] `A Conceptual Introduction to Hamiltonian Monte Carlo`, Michael Betancourt
+    [3] `Slice Sampling`, Radford M. Neal
 
     :param model: Python callable containing Pyro primitives.
     :param float step_size: Determines the size of a single step taken by the
@@ -51,6 +53,16 @@ class NUTS(HMC):
         If not specified and the model has sites with constrained support,
         automatic transformations will be applied, as specified in
         :mod:`torch.distributions.constraint_registry`.
+    :param int max_iarange_nesting: Optional bound on max number of nested
+        :func:`pyro.iarange` contexts. This is required if model contains
+        discrete sample sites that can be enumerated over in parallel.
+    :param bool jit_compile: Optional parameter denoting whether to use
+        the PyTorch JIT to trace the log density computation, and use this
+        optimized executable trace in the integrator.
+    :param bool experimental_use_einsum: Whether to use an einsum operation
+        to evaluat log pdf for the model trace. No-op unless the trace has
+        discrete sample sites. This flag is experimental and will most likely
+        be removed in a future release.
 
     Example:
 
@@ -72,9 +84,23 @@ class NUTS(HMC):
         tensor([ 0.9221,  1.9464,  2.9228])
     """
 
-    def __init__(self, model, step_size=None, adapt_step_size=False, transforms=None):
-        super(NUTS, self).__init__(model, step_size, adapt_step_size=adapt_step_size,
-                                   transforms=transforms)
+    def __init__(self,
+                 model,
+                 step_size=None,
+                 adapt_step_size=False,
+                 transforms=None,
+                 max_iarange_nesting=float("inf"),
+                 jit_compile=False,
+                 ignore_jit_warnings=False,
+                 experimental_use_einsum=False):
+        super(NUTS, self).__init__(model,
+                                   step_size,
+                                   adapt_step_size=adapt_step_size,
+                                   transforms=transforms,
+                                   max_iarange_nesting=max_iarange_nesting,
+                                   jit_compile=jit_compile,
+                                   ignore_jit_warnings=ignore_jit_warnings,
+                                   experimental_use_einsum=experimental_use_einsum)
 
         self._max_tree_depth = 10  # from Stan
         # There are three conditions to stop doubling process:
@@ -120,7 +146,7 @@ class NUTS(HMC):
         else:
             diverging = (sliced_energy >= self._max_sliced_energy)
             delta_energy = energy_new - energy_current
-            accept_prob = (-delta_energy).exp().clamp(max=1)
+            accept_prob = (-delta_energy).exp().clamp(max=1.0)
         return _TreeInfo(z_new, r_new, z_grads, z_new, r_new, z_grads,
                          z_new, tree_size, False, diverging, accept_prob, 1)
 
@@ -195,7 +221,7 @@ class NUTS(HMC):
                          tree_size, turning, diverging, sum_accept_probs, num_proposals)
 
     def sample(self, trace):
-        z = {name: node["value"].detach() for name, node in trace.iter_stochastic_nodes()}
+        z = {name: node["value"].detach() for name, node in self._iter_latent_nodes(trace)}
         # automatically transform `z` to unconstrained space, if needed.
         for name, transform in self.transforms.items():
             z[name] = transform(z[name])
@@ -211,17 +237,17 @@ class NUTS(HMC):
         #     first sampling u from initial state (z_0, r_0) according to u ~ Uniform(0, p(z_0, r_0)),
         #     then sampling state (z, r) from the integrator trajectory according to
         #         (z, r) ~ Uniform({(z', r') in trajectory | p(z', r') >= u}).
-        # For more information about slice sampling method, see
-        #     `Slice sampling` by Radford M. Neal.
+        #
+        # For more information about slice sampling method, see [3].
         # For another version of NUTS which uses multinomial sampling instead of slice sampling, see
-        #     `A Conceptual Introduction to Hamiltonian Monte Carlo` by Michael Betancourt.
-        joint_prob = torch.exp(-energy_current)
-        if joint_prob == 0:
-            slice_var = energy_current.new_tensor(0.0)
-        else:
-            slice_var = pyro.sample("slicevar_t={}".format(self._t),
-                                    dist.Uniform(torch.zeros(1), joint_prob))
-        log_slice = slice_var.log()
+        # [2].
+
+        # Rather than sampling the slice variable from `Uniform(0, exp(-energy))`, we can
+        # sample log_slice directly using `energy`, so as to avoid potential underflow or
+        # overflow issues ([2]).
+        slice_exp_term = pyro.sample("slicevar_exp_t={}".format(self._t),
+                                     dist.Exponential(energy_current.new_tensor(1.)))
+        log_slice = -energy_current - slice_exp_term
 
         z_left = z_right = z
         r_left = r_right = r

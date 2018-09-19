@@ -14,7 +14,7 @@ import pyro
 import pyro.poutine as poutine
 from pyro.contrib.examples import util
 from pyro.distributions import Bernoulli, Normal
-from pyro.infer import SVI, Trace_ELBO
+from pyro.infer import SVI, JitTrace_ELBO, Trace_ELBO
 from pyro.optim import Adam
 from utils.mnist_cached import DATA_DIR, RESULTS_DIR
 
@@ -50,14 +50,13 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, hidden_size, latent_size):
         super(Decoder, self).__init__()
-        self.fc3 = nn.Linear(latent_size, hidden_size)
-        self.fc4 = nn.Linear(hidden_size, 784)
-        self.sigmoid = nn.Sigmoid()
+        self.fc3 = nn.Linear(20, 400)
+        self.fc4 = nn.Linear(400, 784)
         self.relu = nn.ReLU()
 
     def forward(self, z):
         h3 = self.relu(self.fc3(z))
-        return self.sigmoid(self.fc4(h3))
+        return torch.sigmoid(self.fc4(h3))
 
 
 @add_metaclass(ABCMeta)
@@ -221,7 +220,8 @@ class PyroVAEImpl(VAE):
 
     def initialize_optimizer(self, lr):
         optimizer = Adam({'lr': lr})
-        return SVI(self.model, self.guide, optimizer, loss=Trace_ELBO())
+        elbo = JitTrace_ELBO() if self.args.jit else Trace_ELBO()
+        return SVI(self.model, self.guide, optimizer, loss=elbo)
 
 
 def setup(args):
@@ -284,6 +284,7 @@ if __name__ == '__main__':
     parser.add_argument('--impl', nargs='?', default='pyro', type=str)
     parser.add_argument('--skip_eval', action='store_true')
     parser.add_argument('--cuda', action='store_true')
+    parser.add_argument('--jit', action='store_true')
     parser.set_defaults(skip_eval=False)
     args = parser.parse_args()
     main(args)
