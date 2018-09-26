@@ -215,8 +215,8 @@ def test_gaussian_mixture_model(jit):
 
     @poutine.broadcast
     def gmm(data):
+        mix_proportions = pyro.sample("phi", dist.Dirichlet(torch.ones(K)))
         with pyro.iarange("num_clusters", K):
-            mix_proportions = pyro.sample("phi", dist.Dirichlet(torch.tensor(1.)))
             cluster_means = pyro.sample("cluster_means", dist.Normal(torch.arange(float(K)), 1.))
         with pyro.iarange("data", data.shape[0]):
             assignments = pyro.sample("assignments", dist.Categorical(mix_proportions))
@@ -228,14 +228,13 @@ def test_gaussian_mixture_model(jit):
     cluster_assignments = dist.Categorical(true_mix_proportions).sample(torch.Size((N,)))
     data = dist.Normal(true_cluster_means[cluster_assignments], 1.0).sample()
     nuts_kernel = NUTS(gmm, adapt_step_size=True, max_iarange_nesting=1, jit_compile=jit)
-    mcmc_run = MCMC(nuts_kernel, num_samples=500, warmup_steps=200).run(data)
+    mcmc_run = MCMC(nuts_kernel, num_samples=300, warmup_steps=100).run(data)
     posterior = EmpiricalMarginal(mcmc_run, sites=["phi", "cluster_means"]).mean.sort()[0]
     assert_equal(posterior[0], true_mix_proportions, prec=0.05)
     assert_equal(posterior[1], true_cluster_means, prec=0.2)
 
 
-@pytest.mark.parametrize("jit", [False, mark_jit(True, marks=[
-    pytest.mark.xfail(reason="FIXME: log not implemented for 'CPULongType'")])], ids=jit_idfn)
+@pytest.mark.parametrize("jit", [False, mark_jit(True)], ids=jit_idfn)
 def test_bernoulli_latent_model(jit):
     @poutine.broadcast
     def model(data):
@@ -250,7 +249,8 @@ def test_bernoulli_latent_model(jit):
     y = dist.Bernoulli(y_prob).sample(torch.Size((N,)))
     z = dist.Bernoulli(0.65 * y + 0.1).sample()
     data = dist.Normal(2. * z, 1.0).sample()
-    nuts_kernel = NUTS(model, adapt_step_size=True, max_iarange_nesting=1, jit_compile=jit)
+    nuts_kernel = NUTS(model, adapt_step_size=True, max_iarange_nesting=1,
+                       jit_compile=jit, ignore_jit_warnings=True)
     mcmc_run = MCMC(nuts_kernel, num_samples=600, warmup_steps=200).run(data)
     posterior = EmpiricalMarginal(mcmc_run, sites="y_prob").mean
     assert_equal(posterior, y_prob, prec=0.05)
@@ -260,6 +260,7 @@ def test_bernoulli_latent_model(jit):
 @pytest.mark.parametrize("num_steps,use_einsum", [
     (2, False),
     (3, False),
+    (3, True),
     # This will crash without the einsum backend
     pytest.param(30, True,
                  marks=pytest.mark.skip(reason="https://github.com/pytorch/pytorch/issues/10661")),

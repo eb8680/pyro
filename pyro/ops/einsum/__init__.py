@@ -11,8 +11,7 @@ _PATH_CACHE = {}
 
 def contract(equation, *operands, **kwargs):
     """
-    Like :func:`opt_einsum.contract` but works with
-    :func:`~opt_einsum.shared_intermediates` contexts.
+    Wrpper around :func:`opt_einsum.contract` that caches contraction paths.
 
     :param bool cache_path: whether to cache the contraction path.
         Defaults to True.
@@ -46,7 +45,13 @@ def cached_paths(filename):
     """
     if os.path.exists(filename):
         with open(filename, 'rb') as f:
-            _PATH_CACHE.update(pickle.load(f))
+            try:
+                cache = pickle.load(f)
+                _PATH_CACHE.update(cache)
+            # Lower version of python errors when trying to read the cache
+            # file dumped using a higher protocol (later version of python).
+            except ValueError:
+                pass
     try:
         yield
     finally:

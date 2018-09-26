@@ -188,9 +188,9 @@ def main(**kwargs):
         print('Loading parameters...')
         air.load_state_dict(torch.load(args.load))
 
-    vis = visdom.Visdom(env=args.visdom_env)
     # Viz sample from prior.
     if args.viz:
+        vis = visdom.Visdom(env=args.visdom_env)
         z, x = air.prior(5, z_pres_prior_p=partial(z_pres_prior_p, 0))
         vis.images(draw_many(x, tensor_to_objs(latents_to_tensor(z))))
 
@@ -287,7 +287,7 @@ if __name__ == '__main__':
                         help='number of steps between parameter saves')
     parser.add_argument('--cuda', action='store_true', default=False,
                         help='use cuda')
-    parser.add_argument('--jit', action='store_true', default=True,
+    parser.add_argument('--jit', action='store_true', default=False,
                         help='use PyTorch jit')
     parser.add_argument('-t', '--model-steps', type=int, default=3,
                         help='number of time steps')
