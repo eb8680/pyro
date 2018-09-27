@@ -119,7 +119,7 @@ class VAE(object):
         avg_step_time = 0
         for batch_idx, (x, _) in enumerate(self.train_loader):
             x = x.to(device)
-            torch.set_default_tensor_type(torch.cuda.FloatTensor)
+            torch.set_default_tensor_type(torch.cuda.FloatTensor if self.args.cuda else torch.FloatTensor)
             time0 = time.perf_counter()
             loss = self.compute_loss_and_gradient(x)
             torch.cuda.synchronize()
@@ -198,7 +198,7 @@ class PyroVAEImpl(VAE):
         decoder = pyro.module('decoder', self.vae_decoder)
         with pyro.iarange('data', data.size(0)):
             # z = pyro.sample('latent', Normal(torch.tensor(0., device=torch.device("cuda" if self.args.cuda else "cpu")), torch.tensor(1., device=torch.device("cuda" if self.args.cuda else "cpu"))).expand([1]).independent(1))
-            z = pyro.sample('latent', Normal(0., 1.).expand([1]).independent(1))
+            z = pyro.sample('latent', Normal(0., 1.).expand([1, 1]).independent(1))
             img = decoder.forward(z)
             pyro.sample('obs',
                         Bernoulli(img).independent(1),
