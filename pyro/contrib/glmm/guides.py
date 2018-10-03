@@ -69,25 +69,48 @@ class LinearModelGuide(nn.Module):
 
 class SigmoidGuide(LinearModelGuide):
 
-    def __init__(self, d, n, w_sizes, **kwargs):
-        super(SigmoidGuide, self).__init__(d, w_sizes, **kwargs)
-        self.inverse_sigmoid_scale = nn.Parameter(torch.ones(n))
-        self.h1_weight = nn.Parameter(torch.ones(n))
-        self.h1_bias = nn.Parameter(torch.zeros(n))
+    def __init__(self, d, n, w_sizes, slope, scale_tril_init=1., mu_init=0., **kwargs):
+        super(SigmoidGuide, self).__init__(d, w_sizes, scale_tril_init=scale_tril_init,
+                                           **kwargs)
+        self.inverse_sigmoid_scale = 1./slope
+
+        self.scale_tril0 = {l: nn.Parameter(
+                scale_tril_init*torch.ones(d, p, p)) for l, p in w_sizes.items()}
+        self._registered0 = nn.ParameterList(self.scale_tril0.values())
+
+        self.scale_tril1 = {l: nn.Parameter(
+                scale_tril_init*torch.ones(d, p, p)) for l, p in w_sizes.items()}
+        self._registered1 = nn.ParameterList(self.scale_tril1.values())
+
+        self.mu0 = {l: nn.Parameter(
+                mu_init*torch.ones(d, p)) for l, p in w_sizes.items()}
+        self._registered_mu0 = nn.ParameterList(self.mu0.values())
+
+        self.mu1 = {l: nn.Parameter(
+                mu_init*torch.ones(d, p)) for l, p in w_sizes.items()}
+        self._registered_mu0 = nn.ParameterList(self.mu1.values())
 
     def get_params(self, y_dict, design, target_labels):
 
+        # For values in (0, 1), we can perfectly invert the transformation
         y = torch.cat(list(y_dict.values()), dim=-1)
-
-        # Approx invert transformation on y in expectation
         y, y1m = y.clamp(1e-35, 1), (1.-y).clamp(1e-35, 1)
         logited = y.log() - y1m.log()
-        y_trans = logited/.1
-        y_trans = y_trans * self.inverse_sigmoid_scale
-        hidden = self.softplus(y_trans)
-        y_trans = y_trans + hidden * self.h1_weight + self.h1_bias
+        y_trans = logited * self.inverse_sigmoid_scale
 
-        return self.linear_model_formula(y_trans, design, target_labels)
+        mu, scale_tril = self.linear_model_formula(y_trans, design, target_labels)
+        scale_tril = {l: scale_tril[l].expand(mu[l].shape + (mu[l].shape[-1], )) for l in scale_tril}
+
+        # Now deal with clipping- values equal to 0 or 1
+        mask0 = (y < 1e-35).squeeze(-1)
+        mask1 = (1.-y > 1e-35).squeeze(-1)
+        for l in mu.keys():
+            mu[l][mask0, :] = self.mu0[l].expand(mu[l].shape)[mask0, :]
+            mu[l][mask1, :] = self.mu1[l].expand(mu[l].shape)[mask1, :]
+            scale_tril[l][mask0, :, :] = rtril(self.scale_tril0[l].expand(scale_tril[l].shape))[mask0, :, :]
+            scale_tril[l][mask1, :, :] = rtril(self.scale_tril1[l].expand(scale_tril[l].shape))[mask1, :, :]
+
+        return mu, scale_tril
 
 
 class NormalInverseGammaGuide(LinearModelGuide):

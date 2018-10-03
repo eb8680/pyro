@@ -101,10 +101,10 @@ def lmer_model(fixed_effects_sd, n_groups, random_effects_alpha, random_effects_
                    response_label=observation_label)
 
 
-def sigmoid_model(coef1_mean, coef1_sd, coef2_mean, coef2_sd, observation_sd,
-                  sigmoid_alpha, sigmoid_beta, sigmoid_design,
-                  coef1_label="w1", coef2_label="w2", observation_label="y",
-                  sigmoid_label="k"):
+def sigmoid_model_gamma(coef1_mean, coef1_sd, coef2_mean, coef2_sd, observation_sd,
+                        sigmoid_alpha, sigmoid_beta, sigmoid_design,
+                        coef1_label="w1", coef2_label="w2", observation_label="y",
+                        sigmoid_label="k"):
 
     def model(design):
         batch_shape = design.shape[:-2]
@@ -126,6 +126,23 @@ def sigmoid_model(coef1_mean, coef1_sd, coef2_mean, coef2_sd, observation_sd,
 
     return model
 
+
+def sigmoid_model_fixed(coef1_mean, coef1_sd, coef2_mean, coef2_sd, observation_sd, slope,
+                        coef1_label="w1", coef2_label="w2", observation_label="y"):
+    
+    def model(design):
+        
+        return bayesian_linear_model(
+            design,
+            w_means=OrderedDict([(coef1_label, coef1_mean), (coef2_label, coef2_mean)]),
+            w_sqrtlambdas={coef1_label: 1./(observation_sd*coef1_sd), coef2_label: 1./(observation_sd*coef2_sd)},
+            obs_sd=observation_sd,
+            response="sigmoid",
+            response_label=observation_label,
+            k=slope
+            )
+
+    return model
 
 def bayesian_linear_model(design, w_means={}, w_sqrtlambdas={}, re_group_sizes={},
                           re_alphas={}, re_betas={}, obs_sd=None,

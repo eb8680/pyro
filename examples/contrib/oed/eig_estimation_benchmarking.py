@@ -18,7 +18,7 @@ from pyro.contrib.oed.util import (
 from pyro.contrib.glmm import (
     zero_mean_unit_obs_sd_lm, group_assignment_matrix,
     normal_inverse_gamma_linear_model, normal_inverse_gamma_guide, group_linear_model,
-    group_normal_guide, sigmoid_model, rf_group_assignments
+    group_normal_guide, sigmoid_model_gamma, sigmoid_model_fixed, rf_group_assignments
 )
 from pyro.contrib.glmm.guides import LinearModelGuide, NormalInverseGammaGuide, SigmoidGuide, GuideDV
 
@@ -73,8 +73,8 @@ X_circle_10d_1n_2p = torch.stack([item_thetas.cos(), -item_thetas.sin()], dim=-1
 item_thetas_small = torch.linspace(0., np.pi/2, 5).unsqueeze(-1)
 X_circle_5d_1n_2p = torch.stack([item_thetas_small.cos(), -item_thetas_small.sin()], dim=-1)
 
-# Random effects designs
-AB_test_reff_6d_10n_12p, AB_sigmoid_design_6d = rf_group_assignments(10)
+# Location finding designs
+loc_m2_2_3p = torch.stack([torch.linspace(-2., 2., 10), torch.ones(10), torch.zeros(10)], dim=-1).unsqueeze(-2)
 
 #########################################################################################
 # Models
@@ -97,13 +97,12 @@ nig_2p_guide = normal_inverse_gamma_guide((2,), mf=True)
 nig_2p_ba_guide = lambda d: NormalInverseGammaGuide(d, {"w": 2})  # noqa: E731
 nig_2p_ba_mf_guide = lambda d: NormalInverseGammaGuide(d, {"w": 2}, mf=True)  # noqa: E731
 
-sigmoid_12p_model = sigmoid_model(torch.tensor(0.), torch.tensor([10., 2.5]), torch.tensor(0.),
-                                  torch.tensor([1.]*5 + [10.]*5), torch.tensor(1.),
-                                  100.*torch.ones(10), 1000.*torch.ones(10), AB_sigmoid_design_6d)
-sigmoid_difficult_12p_model = sigmoid_model(torch.tensor(0.), torch.tensor([10., 2.5]), torch.tensor(0.),
-                                            torch.tensor([1.]*5 + [10.]*5), torch.tensor(1.),
-                                            10.*torch.ones(10), 100.*torch.ones(10), AB_sigmoid_design_6d)
-sigmoid_ba_guide = lambda d: SigmoidGuide(d, 10, {"w1": 2, "w2": 10})  # noqa: E731
+sigmoid_2p_model = sigmoid_model_fixed(torch.tensor([1., 1.]), torch.tensor([1., 1.]), torch.tensor(0.),
+                                       torch.tensor([10.]), torch.tensor(.1), torch.tensor(5.))
+# sigmoid_gamma_12p_model = sigmoid_model_gamma(torch.tensor(0.), torch.tensor([10., 2.5]), torch.tensor(0.),
+#                                               torch.tensor([1.]*5 + [10.]*5), torch.tensor(1.),
+#                                               10.*torch.ones(10), 10.*torch.ones(10), AB_sigmoid_design_6d)
+sigmoid_ba_guide = lambda d: SigmoidGuide(d, 10, {"w1": 2, "w2": 1}, torch.tensor(5.))  # noqa: E731
 
 ########################################################################################
 # Aux
@@ -132,6 +131,21 @@ T = namedtuple("CompareEstimatorsExample", [
 
 CMP_TEST_CASES = [
     T(
+        "Sigmoid link function: location finding with 1d response",
+        sigmoid_2p_model,
+        loc_m2_2_3p,
+        "y",
+        "w1",
+        [
+            (donsker_varadhan_eig,
+             [400, 400, GuideDV(sigmoid_ba_guide(10)),
+              optim.Adam({"lr": 0.05}), False, None, 500]),
+            (ba_eig_mc,
+             [50, 800, sigmoid_ba_guide(10), optim.Adam({"lr": 0.05}),
+              False, None, 500])
+        ]
+    ),
+    T(
         "A/B test linear model with known observation variance",
         basic_2p_linear_model_sds_10_2pt5,
         AB_test_11d_10n_2p,
@@ -148,21 +162,6 @@ CMP_TEST_CASES = [
               optim.Adam({"lr": 0.025}), False, None, 500]),
             (ba_eig_lm,
              [20, 400, basic_2p_ba_guide(11), optim.Adam({"lr": 0.05}),
-              False, None, 500])
-        ]
-    ),
-    T(
-        "Sigmoid link function",
-        sigmoid_12p_model,
-        AB_test_reff_6d_10n_12p,
-        "y",
-        "w1",
-        [
-            (donsker_varadhan_eig,
-             [400, 400, GuideDV(sigmoid_ba_guide(6)),
-              optim.Adam({"lr": 0.05}), False, None, 500]),
-            (ba_eig_mc,
-             [20, 800, sigmoid_ba_guide(6), optim.Adam({"lr": 0.05}),
               False, None, 500])
         ]
     ),
@@ -326,15 +325,14 @@ U = namedtuple("CheckConvergenceExample", [
 
 CONV_TEST_CASES = [
     U(
-        "Barber-Agakov on difficult sigmoid",
-        sigmoid_difficult_12p_model,
-        AB_test_reff_6d_10n_12p,
-        "y",
-        "w1",
+        "Location finding sigmoid",
+        sigmoid_2p_model,
+        torch.tensor([[-1., 1, 0], [-0.9, 1., 0], [0.9, 1, 0], [1., 1., 0]]).unsqueeze(-2),
+        "y", "w1",
         barber_agakov_ape,
         None,
-        {"num_steps": 5000, "num_samples": 200, "optim": optim.Adam({"lr": 0.05}),
-         "guide": sigmoid_ba_guide(6), "final_num_samples": 500},
+        {"num_steps": 2000, "num_samples": 1000, "optim": optim.Adam({"lr": 0.05}),
+         "guide": sigmoid_ba_guide(4), "final_num_samples": 1000},
         {}
     ),
     U(
