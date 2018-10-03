@@ -98,11 +98,11 @@ nig_2p_ba_guide = lambda d: NormalInverseGammaGuide(d, {"w": 2})  # noqa: E731
 nig_2p_ba_mf_guide = lambda d: NormalInverseGammaGuide(d, {"w": 2}, mf=True)  # noqa: E731
 
 sigmoid_2p_model = sigmoid_model_fixed(torch.tensor([1., 1.]), torch.tensor([1., 1.]), torch.tensor(0.),
-                                       torch.tensor([10.]), torch.tensor(.1), torch.tensor(5.))
+                                       torch.tensor([10.]), torch.tensor(.1), torch.tensor(50.))
 # sigmoid_gamma_12p_model = sigmoid_model_gamma(torch.tensor(0.), torch.tensor([10., 2.5]), torch.tensor(0.),
 #                                               torch.tensor([1.]*5 + [10.]*5), torch.tensor(1.),
 #                                               10.*torch.ones(10), 10.*torch.ones(10), AB_sigmoid_design_6d)
-sigmoid_ba_guide = lambda d: SigmoidGuide(d, 10, {"w1": 2, "w2": 1}, torch.tensor(5.))  # noqa: E731
+sigmoid_ba_guide = lambda d: SigmoidGuide(d, 10, {"w1": 2, "w2": 1}, torch.tensor(50.))  # noqa: E731
 
 ########################################################################################
 # Aux
@@ -331,7 +331,7 @@ CONV_TEST_CASES = [
         "y", "w1",
         barber_agakov_ape,
         None,
-        {"num_steps": 2000, "num_samples": 1000, "optim": optim.Adam({"lr": 0.05}),
+        {"num_steps": 400, "num_samples": 400, "optim": optim.Adam({"lr": 0.05}),
          "guide": sigmoid_ba_guide(4), "final_num_samples": 1000},
         {}
     ),

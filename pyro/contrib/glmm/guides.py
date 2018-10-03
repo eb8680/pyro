@@ -69,7 +69,7 @@ class LinearModelGuide(nn.Module):
 
 class SigmoidGuide(LinearModelGuide):
 
-    def __init__(self, d, n, w_sizes, slope, scale_tril_init=1., mu_init=0., **kwargs):
+    def __init__(self, d, n, w_sizes, slope, scale_tril_init=.1, mu_init=0., **kwargs):
         super(SigmoidGuide, self).__init__(d, w_sizes, scale_tril_init=scale_tril_init,
                                            **kwargs)
         self.inverse_sigmoid_scale = 1./slope
@@ -92,6 +92,13 @@ class SigmoidGuide(LinearModelGuide):
 
     def get_params(self, y_dict, design, target_labels):
 
+        print('0')
+        print(self.mu0, self.scale_tril0)
+        print('1')
+        print(self.mu1, self.scale_tril1)
+        print('interval')
+        print(self.scale_tril)
+
         # For values in (0, 1), we can perfectly invert the transformation
         y = torch.cat(list(y_dict.values()), dim=-1)
         y, y1m = y.clamp(1e-35, 1), (1.-y).clamp(1e-35, 1)
@@ -103,7 +110,12 @@ class SigmoidGuide(LinearModelGuide):
 
         # Now deal with clipping- values equal to 0 or 1
         mask0 = (y < 1e-35).squeeze(-1)
-        mask1 = (1.-y > 1e-35).squeeze(-1)
+        mask1 = (1.-y < 1e-35).squeeze(-1)
+        print(mask0.numel())
+        print(mask0.nonzero().size(0))
+        print(mask1.nonzero().size(0))
+        print(mask0.sum(0))
+        print(mask1.sum(0))
         for l in mu.keys():
             mu[l][mask0, :] = self.mu0[l].expand(mu[l].shape)[mask0, :]
             mu[l][mask1, :] = self.mu1[l].expand(mu[l].shape)[mask1, :]
