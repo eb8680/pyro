@@ -74,7 +74,8 @@ item_thetas_small = torch.linspace(0., np.pi/2, 5).unsqueeze(-1)
 X_circle_5d_1n_2p = torch.stack([item_thetas_small.cos(), -item_thetas_small.sin()], dim=-1)
 
 # Location finding designs
-loc_m2_2_3p = torch.stack([torch.linspace(-2., 2., 10), torch.ones(10), torch.zeros(10)], dim=-1).unsqueeze(-2)
+loc_10d_1n_2p = torch.stack([torch.linspace(-10., 10., 10), torch.ones(10), torch.zeros(10)], dim=-1).unsqueeze(-2)
+loc_4d_1n_2p = torch.tensor([[-5., 1, 0], [-4.9, 1., 0], [4.9, 1, 0], [5., 1., 0]]).unsqueeze(-2)
 
 #########################################################################################
 # Models
@@ -97,12 +98,18 @@ nig_2p_guide = normal_inverse_gamma_guide((2,), mf=True)
 nig_2p_ba_guide = lambda d: NormalInverseGammaGuide(d, {"w": 2})  # noqa: E731
 nig_2p_ba_mf_guide = lambda d: NormalInverseGammaGuide(d, {"w": 2}, mf=True)  # noqa: E731
 
-sigmoid_2p_model = sigmoid_model_fixed(torch.tensor([1., 1.]), torch.tensor([1., 1.]), torch.tensor(0.),
-                                       torch.tensor([10.]), torch.tensor(.1), torch.tensor(50.))
+sigmoid_low_2p_model = sigmoid_model_fixed(torch.tensor([5., 5.]), torch.tensor([1., 1.]), torch.tensor(0.),
+                                           torch.tensor([10.]), torch.tensor(1.), torch.tensor(.5))
+sigmoid_high_2p_model = sigmoid_model_fixed(torch.tensor([5., 5.]), torch.tensor([1., 1.]), torch.tensor(0.),
+                                            torch.tensor([10.]), torch.tensor(1.), torch.tensor(2.))
+loc_2p_model = group_linear_model(torch.tensor([1., 1.]), torch.tensor([1., 1.]), torch.tensor(0.),
+                                  torch.tensor([10.]), torch.tensor(1.))
+loc_ba_guide = lambda d: LinearModelGuide(d, {"w1": 2, "w2": 1})  # noqa: E731
 # sigmoid_gamma_12p_model = sigmoid_model_gamma(torch.tensor(0.), torch.tensor([10., 2.5]), torch.tensor(0.),
 #                                               torch.tensor([1.]*5 + [10.]*5), torch.tensor(1.),
 #                                               10.*torch.ones(10), 10.*torch.ones(10), AB_sigmoid_design_6d)
-sigmoid_ba_guide = lambda d: SigmoidGuide(d, 10, {"w1": 2, "w2": 1}, torch.tensor(50.))  # noqa: E731
+sigmoid_low_guide = lambda d: SigmoidGuide(d, 10, {"w1": 2, "w2": 1}, torch.tensor(.5))  # noqa: E731
+sigmoid_high_guide = lambda d: SigmoidGuide(d, 10, {"w1": 2, "w2": 1}, torch.tensor(2.))  # noqa: E731
 
 ########################################################################################
 # Aux
@@ -132,16 +139,16 @@ T = namedtuple("CompareEstimatorsExample", [
 CMP_TEST_CASES = [
     T(
         "Sigmoid link function: location finding with 1d response",
-        sigmoid_2p_model,
-        loc_m2_2_3p,
+        sigmoid_high_2p_model,
+        loc_10d_1n_2p,
         "y",
         "w1",
         [
             (donsker_varadhan_eig,
-             [400, 400, GuideDV(sigmoid_ba_guide(10)),
+             [400, 400, GuideDV(sigmoid_high_guide(10)),
               optim.Adam({"lr": 0.05}), False, None, 500]),
             (ba_eig_mc,
-             [50, 800, sigmoid_ba_guide(10), optim.Adam({"lr": 0.05}),
+             [40, 800, sigmoid_high_guide(10), optim.Adam({"lr": 0.05}),
               False, None, 500])
         ]
     ),
@@ -324,16 +331,38 @@ U = namedtuple("CheckConvergenceExample", [
 ])
 
 CONV_TEST_CASES = [
+    # U(
+    #     "Location finding -- no sigmoid -- sanity check",
+    #     loc_2p_model,
+    #     loc_4d_1n_2p,
+    #     "y", "w1",
+    #     barber_agakov_ape,
+    #     linear_model_ground_truth,
+    #     {"num_steps": 800, "num_samples": 40, "optim": optim.Adam({"lr": 0.05}),
+    #      "guide": loc_ba_guide(4), "final_num_samples": 1000},
+    #     {"eig": False}
+    # ),
+    # U(
+    #     "Low slope sigmoid -- should reproduce linear model",
+    #     sigmoid_low_2p_model,
+    #     loc_4d_1n_2p,
+    #     "y", "w1",
+    #     barber_agakov_ape,
+    #     linear_model_ground_truth,
+    #     {"num_steps": 800, "num_samples": 40, "optim": optim.Adam({"lr": 0.05}),
+    #      "guide": sigmoid_low_guide(4), "final_num_samples": 1000},
+    #     {"eig": False}
+    # ),
     U(
-        "Location finding sigmoid",
-        sigmoid_2p_model,
-        torch.tensor([[-1., 1, 0], [-0.9, 1., 0], [0.9, 1, 0], [1., 1., 0]]).unsqueeze(-2),
+        "High slope sigmoid -- should see major difference",
+        sigmoid_high_2p_model,
+        loc_4d_1n_2p,
         "y", "w1",
         barber_agakov_ape,
-        None,
-        {"num_steps": 400, "num_samples": 400, "optim": optim.Adam({"lr": 0.05}),
-         "guide": sigmoid_ba_guide(4), "final_num_samples": 1000},
-        {}
+        linear_model_ground_truth,
+        {"num_steps": 800, "num_samples": 40, "optim": optim.Adam({"lr": 0.05}),
+         "guide": sigmoid_high_guide(4), "final_num_samples": 1000},
+        {"eig": False}
     ),
     U(
         "Barber-Agakov on A/B test with unknown covariance",

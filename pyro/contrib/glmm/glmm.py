@@ -129,7 +129,7 @@ def sigmoid_model_gamma(coef1_mean, coef1_sd, coef2_mean, coef2_sd, observation_
 
 def sigmoid_model_fixed(coef1_mean, coef1_sd, coef2_mean, coef2_sd, observation_sd, slope,
                         coef1_label="w1", coef2_label="w2", observation_label="y"):
-    
+    print('slope', slope)
     def model(design):
         
         return bayesian_linear_model(
@@ -141,7 +141,8 @@ def sigmoid_model_fixed(coef1_mean, coef1_sd, coef2_mean, coef2_sd, observation_
             response_label=observation_label,
             k=slope
             )
-
+    model.w_sds = {coef1_label: coef1_sd, coef2_label: coef2_sd}
+    model.obs_sd = observation_sd
     return model
 
 def bayesian_linear_model(design, w_means={}, w_sqrtlambdas={}, re_group_sizes={},

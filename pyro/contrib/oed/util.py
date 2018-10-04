@@ -58,7 +58,10 @@ def ba_eig_lm(model, design, observation_labels, target_labels, *args, **kwargs)
     # **Only** applies to linear models - analytic prior entropy
     ape = barber_agakov_ape(model, design, observation_labels, target_labels, *args, **kwargs)
     prior_entropy = lm_H_prior(model, design, observation_labels, target_labels)
-    return prior_entropy - ape
+    if isinstance(ape, tuple):
+        return tuple(prior_entropy - a for a in ape)
+    else:
+        return prior_entropy - ape
 
 
 def ba_eig_mc(model, design, observation_labels, target_labels, *args, **kwargs):

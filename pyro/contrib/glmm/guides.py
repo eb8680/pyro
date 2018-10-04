@@ -29,6 +29,7 @@ class LinearModelGuide(nn.Module):
         # To avoid this- combine labels
         self.tikhonov_diag = nn.Parameter(
                 tikhonov_init*torch.ones(sum(w_sizes.values())))
+        self.scaled_prior_mean = nn.Parameter(torch.zeros(sum(w_sizes.values())))
         self.scale_tril = {l: nn.Parameter(
                 scale_tril_init*torch.ones(d, p, p)) for l, p in w_sizes.items()}
         # This registers the dict values in pytorch
@@ -47,7 +48,7 @@ class LinearModelGuide(nn.Module):
         tikhonov_diag = torch.diag(self.softplus(self.tikhonov_diag))
         xtx = torch.matmul(design.transpose(-1, -2), design) + tikhonov_diag
         xtxi = rinverse(xtx, sym=True)
-        mu = rmv(xtxi, rmv(design.transpose(-1, -2), y))
+        mu = rmv(xtxi, rmv(design.transpose(-1, -2), y) + self.scaled_prior_mean)
 
         # Extract sub-indices
         mu = tensor_to_dict(self.w_sizes, mu, subset=target_labels)
@@ -69,18 +70,10 @@ class LinearModelGuide(nn.Module):
 
 class SigmoidGuide(LinearModelGuide):
 
-    def __init__(self, d, n, w_sizes, slope, scale_tril_init=.1, mu_init=0., **kwargs):
+    def __init__(self, d, n, w_sizes, slope, scale_tril_init=3., mu_init=0., **kwargs):
         super(SigmoidGuide, self).__init__(d, w_sizes, scale_tril_init=scale_tril_init,
                                            **kwargs)
         self.inverse_sigmoid_scale = 1./slope
-
-        self.scale_tril0 = {l: nn.Parameter(
-                scale_tril_init*torch.ones(d, p, p)) for l, p in w_sizes.items()}
-        self._registered0 = nn.ParameterList(self.scale_tril0.values())
-
-        self.scale_tril1 = {l: nn.Parameter(
-                scale_tril_init*torch.ones(d, p, p)) for l, p in w_sizes.items()}
-        self._registered1 = nn.ParameterList(self.scale_tril1.values())
 
         self.mu0 = {l: nn.Parameter(
                 mu_init*torch.ones(d, p)) for l, p in w_sizes.items()}
@@ -90,17 +83,21 @@ class SigmoidGuide(LinearModelGuide):
                 mu_init*torch.ones(d, p)) for l, p in w_sizes.items()}
         self._registered_mu0 = nn.ParameterList(self.mu1.values())
 
-    def get_params(self, y_dict, design, target_labels):
+        self.scale_tril0 = {l: nn.Parameter(
+                scale_tril_init*torch.ones(d, p, p)) for l, p in w_sizes.items()}
+        self._registered0 = nn.ParameterList(self.scale_tril0.values())
 
-        print('0')
-        print(self.mu0, self.scale_tril0)
-        print('1')
-        print(self.mu1, self.scale_tril1)
-        print('interval')
-        print(self.scale_tril)
+        self.scale_tril1 = {l: nn.Parameter(
+                scale_tril_init*torch.ones(d, p, p)) for l, p in w_sizes.items()}
+        self._registered1 = nn.ParameterList(self.scale_tril1.values())
+
+
+    def get_params(self, y_dict, design, target_labels):
 
         # For values in (0, 1), we can perfectly invert the transformation
         y = torch.cat(list(y_dict.values()), dim=-1)
+        mask0 = (y < 1e-35).squeeze(-1)
+        mask1 = (1.-y < 1e-35).squeeze(-1)
         y, y1m = y.clamp(1e-35, 1), (1.-y).clamp(1e-35, 1)
         logited = y.log() - y1m.log()
         y_trans = logited * self.inverse_sigmoid_scale
@@ -109,14 +106,51 @@ class SigmoidGuide(LinearModelGuide):
         scale_tril = {l: scale_tril[l].expand(mu[l].shape + (mu[l].shape[-1], )) for l in scale_tril}
 
         # Now deal with clipping- values equal to 0 or 1
-        mask0 = (y < 1e-35).squeeze(-1)
-        mask1 = (1.-y < 1e-35).squeeze(-1)
-        print(mask0.numel())
-        print(mask0.nonzero().size(0))
-        print(mask1.nonzero().size(0))
-        print(mask0.sum(0))
-        print(mask1.sum(0))
+        # print(mask0.sum(0))
+        # print(mask1.sum(0))
         for l in mu.keys():
+            mu[l][mask0, :] = self.mu0[l].expand(mu[l].shape)[mask0, :]
+            mu[l][mask1, :] = self.mu1[l].expand(mu[l].shape)[mask1, :]
+            scale_tril[l][mask0, :, :] = rtril(self.scale_tril0[l].expand(scale_tril[l].shape))[mask0, :, :]
+            scale_tril[l][mask1, :, :] = rtril(self.scale_tril1[l].expand(scale_tril[l].shape))[mask1, :, :]
+
+        return mu, scale_tril
+
+
+class LogisticGuide(LinearModelGuide):
+
+    def __init__(self, d, n, w_sizes, scale_tril_init=3., mu_init=0., **kwargs):
+        super(LogisticGuide, self).__init__(d, w_sizes, scale_tril_init=scale_tril_init,
+                                           **kwargs)
+        self.mu0 = {l: nn.Parameter(
+                mu_init*torch.ones(d, p)) for l, p in w_sizes.items()}
+        self._registered_mu0 = nn.ParameterList(self.mu0.values())
+
+        self.mu1 = {l: nn.Parameter(
+                mu_init*torch.ones(d, p)) for l, p in w_sizes.items()}
+        self._registered_mu0 = nn.ParameterList(self.mu1.values())
+
+        self.scale_tril0 = {l: nn.Parameter(
+                scale_tril_init*torch.ones(d, p, p)) for l, p in w_sizes.items()}
+        self._registered0 = nn.ParameterList(self.scale_tril0.values())
+
+        self.scale_tril1 = {l: nn.Parameter(
+                scale_tril_init*torch.ones(d, p, p)) for l, p in w_sizes.items()}
+        self._registered1 = nn.ParameterList(self.scale_tril1.values())
+
+
+    def get_params(self, y_dict, design, target_labels):
+
+        # For values in (0, 1), we can perfectly invert the transformation
+        y = torch.cat(list(y_dict.values()), dim=-1)
+        mask0 = (y == 0.).squeeze(-1)
+        mask1 = (y == 1.).squeeze(-1)
+
+        mu = {}
+        scale_tril = {}
+        for l in target_labels:
+            mu[l] = torch.empty(y.shape[:-1] + (self.w_sizes[l], ))
+            scale_tril[l] = torch.empty(y.shape[:-1] + (self.w_sizes[l], ))
             mu[l][mask0, :] = self.mu0[l].expand(mu[l].shape)[mask0, :]
             mu[l][mask1, :] = self.mu1[l].expand(mu[l].shape)[mask1, :]
             scale_tril[l][mask0, :, :] = rtril(self.scale_tril0[l].expand(scale_tril[l].shape))[mask0, :, :]
