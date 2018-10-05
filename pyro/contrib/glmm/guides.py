@@ -81,7 +81,7 @@ class SigmoidGuide(LinearModelGuide):
 
         self.mu1 = {l: nn.Parameter(
                 mu_init*torch.ones(d, p)) for l, p in w_sizes.items()}
-        self._registered_mu0 = nn.ParameterList(self.mu1.values())
+        self._registered_mu1 = nn.ParameterList(self.mu1.values())
 
         self.scale_tril0 = {l: nn.Parameter(
                 scale_tril_init*torch.ones(d, p, p)) for l, p in w_sizes.items()}
@@ -119,7 +119,7 @@ class SigmoidGuide(LinearModelGuide):
 
 class LogisticGuide(LinearModelGuide):
 
-    def __init__(self, d, n, w_sizes, scale_tril_init=3., mu_init=0., **kwargs):
+    def __init__(self, d, w_sizes, scale_tril_init=3., mu_init=0., **kwargs):
         super(LogisticGuide, self).__init__(d, w_sizes, scale_tril_init=scale_tril_init,
                                            **kwargs)
         self.mu0 = {l: nn.Parameter(
@@ -128,7 +128,7 @@ class LogisticGuide(LinearModelGuide):
 
         self.mu1 = {l: nn.Parameter(
                 mu_init*torch.ones(d, p)) for l, p in w_sizes.items()}
-        self._registered_mu0 = nn.ParameterList(self.mu1.values())
+        self._registered_mu1 = nn.ParameterList(self.mu1.values())
 
         self.scale_tril0 = {l: nn.Parameter(
                 scale_tril_init*torch.ones(d, p, p)) for l, p in w_sizes.items()}
@@ -141,16 +141,18 @@ class LogisticGuide(LinearModelGuide):
 
     def get_params(self, y_dict, design, target_labels):
 
-        # For values in (0, 1), we can perfectly invert the transformation
         y = torch.cat(list(y_dict.values()), dim=-1)
         mask0 = (y == 0.).squeeze(-1)
         mask1 = (y == 1.).squeeze(-1)
+        # print(mask0.sum(0))
+        # print(mask1.sum(0))
+        # print(self.mu0, self.scale_tril0, self.mu1, self.scale_tril1)
 
         mu = {}
         scale_tril = {}
         for l in target_labels:
             mu[l] = torch.empty(y.shape[:-1] + (self.w_sizes[l], ))
-            scale_tril[l] = torch.empty(y.shape[:-1] + (self.w_sizes[l], ))
+            scale_tril[l] = torch.empty(y.shape[:-1] + (self.w_sizes[l], self.w_sizes[l]))
             mu[l][mask0, :] = self.mu0[l].expand(mu[l].shape)[mask0, :]
             mu[l][mask1, :] = self.mu1[l].expand(mu[l].shape)[mask1, :]
             scale_tril[l][mask0, :, :] = rtril(self.scale_tril0[l].expand(scale_tril[l].shape))[mask0, :, :]

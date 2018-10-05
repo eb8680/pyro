@@ -127,23 +127,22 @@ def sigmoid_model_gamma(coef1_mean, coef1_sd, coef2_mean, coef2_sd, observation_
     return model
 
 
-def sigmoid_model_fixed(coef1_mean, coef1_sd, coef2_mean, coef2_sd, observation_sd, slope,
-                        coef1_label="w1", coef2_label="w2", observation_label="y"):
-    print('slope', slope)
+def sigmoid_model_fixed(coef1_mean, coef1_sd, observation_sd, slope, coef1_label="w1", observation_label="y"):
     def model(design):
         
         return bayesian_linear_model(
             design,
-            w_means=OrderedDict([(coef1_label, coef1_mean), (coef2_label, coef2_mean)]),
-            w_sqrtlambdas={coef1_label: 1./(observation_sd*coef1_sd), coef2_label: 1./(observation_sd*coef2_sd)},
+            w_means={coef1_label: coef1_mean},
+            w_sqrtlambdas={coef1_label: 1./(observation_sd*coef1_sd)},
             obs_sd=observation_sd,
             response="sigmoid",
             response_label=observation_label,
             k=slope
             )
-    model.w_sds = {coef1_label: coef1_sd, coef2_label: coef2_sd}
+    model.w_sds = {coef1_label: coef1_sd}
     model.obs_sd = observation_sd
     return model
+
 
 def bayesian_linear_model(design, w_means={}, w_sqrtlambdas={}, re_group_sizes={},
                           re_alphas={}, re_betas={}, obs_sd=None,

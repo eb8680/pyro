@@ -18,9 +18,12 @@ from pyro.contrib.oed.util import (
 from pyro.contrib.glmm import (
     zero_mean_unit_obs_sd_lm, group_assignment_matrix,
     normal_inverse_gamma_linear_model, normal_inverse_gamma_guide, group_linear_model,
-    group_normal_guide, sigmoid_model_gamma, sigmoid_model_fixed, rf_group_assignments
+    group_normal_guide, sigmoid_model_gamma, sigmoid_model_fixed, rf_group_assignments,
+    known_covariance_linear_model, logistic_regression_model
 )
-from pyro.contrib.glmm.guides import LinearModelGuide, NormalInverseGammaGuide, SigmoidGuide, GuideDV
+from pyro.contrib.glmm.guides import (
+    LinearModelGuide, NormalInverseGammaGuide, SigmoidGuide, GuideDV, LogisticGuide
+)
 
 PLOT = True
 
@@ -74,8 +77,8 @@ item_thetas_small = torch.linspace(0., np.pi/2, 5).unsqueeze(-1)
 X_circle_5d_1n_2p = torch.stack([item_thetas_small.cos(), -item_thetas_small.sin()], dim=-1)
 
 # Location finding designs
-loc_10d_1n_2p = torch.stack([torch.linspace(-10., 10., 10), torch.ones(10), torch.zeros(10)], dim=-1).unsqueeze(-2)
-loc_4d_1n_2p = torch.tensor([[-5., 1, 0], [-4.9, 1., 0], [4.9, 1, 0], [5., 1., 0]]).unsqueeze(-2)
+loc_10d_1n_2p = torch.stack([torch.linspace(-10., 10., 10), torch.ones(10)], dim=-1).unsqueeze(-2)
+loc_4d_1n_2p = torch.tensor([[-5., 1], [-4.9, 1.], [4.9, 1], [5., 1.]]).unsqueeze(-2)
 
 #########################################################################################
 # Models
@@ -98,18 +101,20 @@ nig_2p_guide = normal_inverse_gamma_guide((2,), mf=True)
 nig_2p_ba_guide = lambda d: NormalInverseGammaGuide(d, {"w": 2})  # noqa: E731
 nig_2p_ba_mf_guide = lambda d: NormalInverseGammaGuide(d, {"w": 2}, mf=True)  # noqa: E731
 
-sigmoid_low_2p_model = sigmoid_model_fixed(torch.tensor([5., 5.]), torch.tensor([1., 1.]), torch.tensor(0.),
-                                           torch.tensor([10.]), torch.tensor(1.), torch.tensor(.5))
-sigmoid_high_2p_model = sigmoid_model_fixed(torch.tensor([5., 5.]), torch.tensor([1., 1.]), torch.tensor(0.),
-                                            torch.tensor([10.]), torch.tensor(1.), torch.tensor(2.))
-loc_2p_model = group_linear_model(torch.tensor([1., 1.]), torch.tensor([1., 1.]), torch.tensor(0.),
-                                  torch.tensor([10.]), torch.tensor(1.))
-loc_ba_guide = lambda d: LinearModelGuide(d, {"w1": 2, "w2": 1})  # noqa: E731
+sigmoid_low_2p_model = sigmoid_model_fixed(torch.tensor([1., 5.]), torch.tensor([1., 1.]), 
+                                           torch.tensor(1.), torch.tensor(.5))
+sigmoid_high_2p_model = sigmoid_model_fixed(torch.tensor([1., 5.]), torch.tensor([1., 1.]),
+                                            torch.tensor(1.), torch.tensor(2.))
+loc_2p_model = known_covariance_linear_model(torch.tensor([1., 5.]), torch.tensor([1., 1.]), torch.tensor(1.),
+                                             coef_label="w1")
+logistic_2p_model = logistic_regression_model(torch.tensor([1., 5.]), torch.tensor([1., 1.]), coef_label="w1")
+loc_ba_guide = lambda d: LinearModelGuide(d, {"w1": 2})  # noqa: E731
+logistic_guide = lambda d: LogisticGuide(d, {"w1": 2})
 # sigmoid_gamma_12p_model = sigmoid_model_gamma(torch.tensor(0.), torch.tensor([10., 2.5]), torch.tensor(0.),
 #                                               torch.tensor([1.]*5 + [10.]*5), torch.tensor(1.),
 #                                               10.*torch.ones(10), 10.*torch.ones(10), AB_sigmoid_design_6d)
-sigmoid_low_guide = lambda d: SigmoidGuide(d, 10, {"w1": 2, "w2": 1}, torch.tensor(.5))  # noqa: E731
-sigmoid_high_guide = lambda d: SigmoidGuide(d, 10, {"w1": 2, "w2": 1}, torch.tensor(2.))  # noqa: E731
+sigmoid_low_guide = lambda d: SigmoidGuide(d, 10, {"w1": 2}, torch.tensor(.5))  # noqa: E731
+sigmoid_high_guide = lambda d: SigmoidGuide(d, 10, {"w1": 2}, torch.tensor(2.))  # noqa: E731
 
 ########################################################################################
 # Aux
@@ -137,6 +142,21 @@ T = namedtuple("CompareEstimatorsExample", [
 ])
 
 CMP_TEST_CASES = [
+    T(
+        "Logistic regression",
+        logistic_2p_model,
+        loc_10d_1n_2p,
+        "y",
+        "w1",
+        [
+            (donsker_varadhan_eig,
+             [400, 400, GuideDV(logistic_guide(10)),
+              optim.Adam({"lr": 0.05}), False, None, 500]),
+            (ba_eig_mc,
+             [40, 800, logstic_guide(10), optim.Adam({"lr": 0.05}),
+              False, None, 500])
+        ]
+    ),
     T(
         "Sigmoid link function: location finding with 1d response",
         sigmoid_high_2p_model,
@@ -331,6 +351,17 @@ U = namedtuple("CheckConvergenceExample", [
 ])
 
 CONV_TEST_CASES = [
+    U(
+        "Logistic regression",
+        logistic_2p_model,
+        loc_4d_1n_2p,
+        "y", "w1",
+        barber_agakov_ape,
+        None,
+        {"num_steps": 800, "num_samples": 40, "optim": optim.Adam({"lr": 0.05}),
+         "guide": logistic_guide(4), "final_num_samples": 1000},
+        {}
+    ),
     # U(
     #     "Location finding -- no sigmoid -- sanity check",
     #     loc_2p_model,
