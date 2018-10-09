@@ -106,8 +106,8 @@ class SigmoidGuide(LinearModelGuide):
         scale_tril = {l: scale_tril[l].expand(mu[l].shape + (mu[l].shape[-1], )) for l in scale_tril}
 
         # Now deal with clipping- values equal to 0 or 1
-        # print(mask0.sum(0))
-        # print(mask1.sum(0))
+        print(mask0.sum(0))
+        print(mask1.sum(0))
         for l in mu.keys():
             mu[l][mask0, :] = self.mu0[l].expand(mu[l].shape)[mask0, :]
             mu[l][mask1, :] = self.mu1[l].expand(mu[l].shape)[mask1, :]
@@ -159,6 +159,26 @@ class LogisticGuide(LinearModelGuide):
             scale_tril[l][mask1, :, :] = rtril(self.scale_tril1[l].expand(scale_tril[l].shape))[mask1, :, :]
 
         return mu, scale_tril
+
+
+class LogisticResponseEst(nn.Module):
+    
+    def __init__(self, d, observation_labels, p_logit_init=0., **kwargs):
+
+        super(LogisticResponseEst, self).__init__()
+
+        self.logits = {l: nn.Parameter(p_logit_init*torch.ones(d, 1)) for l in observation_labels}
+        self._registered = nn.ParameterList(self.logits.values())
+
+    
+    def forward(self, design, observation_labels, target_labels):
+
+        pyro.module("gibbs_y_guide", self)
+        print(self.logits)
+
+        for l in observation_labels:
+            y_dist = dist.Bernoulli(logits=self.logits[l]).independent(1)
+            pyro.sample(l, y_dist)
 
 
 class NormalInverseGammaGuide(LinearModelGuide):

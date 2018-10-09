@@ -242,6 +242,25 @@ def barber_agakov_ape(model, design, observation_labels, target_labels,
                             final_design, final_num_samples)
 
 
+def gibbs_y_eig(model, design, observation_labels, target_labels,
+                num_samples, num_steps, guide, optim, return_history=False,
+                final_design=None, final_num_samples=None):
+    """Estimate EIG by estimating the marginal entropy, that of :math:`p(y|d)`,
+    via Gibbs' Inequality.
+
+    Warning: this method does **not** estimate the correct quantity in the presence of
+    random effects.
+    """
+
+    if isinstance(observation_labels, str):
+        observation_labels = [observation_labels]
+    if isinstance(target_labels, str):
+        target_labels = [target_labels]
+    loss = gibbs_y_loss(model, guide, observation_labels, target_labels)
+    return opt_eig_ape_loss(design, loss, num_samples, num_steps, optim, return_history,
+                            final_design, final_num_samples)
+
+
 def opt_eig_ape_loss(design, loss_fn, num_samples, num_steps, optim, return_history=False,
                      final_design=None, final_num_samples=None):
 
@@ -262,7 +281,7 @@ def opt_eig_ape_loss(design, loss_fn, num_samples, num_steps, optim, return_hist
         params = [pyro.param(name).unconstrained()
                   for name in pyro.get_param_store().get_all_param_names()]
         optim(params)
-    _, loss = loss_fn(final_design, final_num_samples)
+    _, loss = loss_fn(final_design, final_num_samples, evaluation=True)
     if return_history:
         return torch.stack(history), loss
     else:
@@ -278,7 +297,7 @@ def donsker_varadhan_loss(model, T, observation_labels, target_labels):
     except AssertionError:
         pass
 
-    def loss_fn(design, num_particles):
+    def loss_fn(design, num_particles, **kwargs):
 
         expanded_design = lexpand(design, num_particles)
 
@@ -312,7 +331,7 @@ def donsker_varadhan_loss(model, T, observation_labels, target_labels):
 
 def barber_agakov_loss(model, guide, observation_labels, target_labels):
 
-    def loss_fn(design, num_particles):
+    def loss_fn(design, num_particles, **kwargs):
 
         expanded_design = lexpand(design, num_particles)
 
@@ -328,6 +347,36 @@ def barber_agakov_loss(model, guide, observation_labels, target_labels):
         cond_trace.compute_log_prob()
 
         loss = -sum(cond_trace.nodes[l]["log_prob"] for l in target_labels).sum(0)/num_particles
+        agg_loss = loss.sum()
+        return agg_loss, loss
+
+    return loss_fn
+
+
+def gibbs_y_loss(model, guide, observation_labels, target_labels):
+
+    def loss_fn(design, num_particles, evaluation=False, **kwargs):
+
+        expanded_design = lexpand(design, num_particles)
+
+        # Sample from p(y | d)
+        trace = poutine.trace(model).get_trace(expanded_design)
+        y_dict = {l: trace.nodes[l]["value"] for l in observation_labels}
+        print(y_dict['y'].sum(0))
+
+        # Run through q(y | d)
+        conditional_guide = pyro.condition(guide, data=y_dict)
+        cond_trace = poutine.trace(conditional_guide).get_trace(
+             expanded_design, observation_labels, target_labels)
+        cond_trace.compute_log_prob()
+
+        loss = -sum(cond_trace.nodes[l]["log_prob"] for l in observation_labels).sum(0)/num_particles
+
+        # At eval time, add p(y | theta, d) terms
+        if evaluation:
+            trace.compute_log_prob()
+            loss += sum(trace.nodes[l]["log_prob"] for l in observation_labels).sum(0)/num_particles
+
         agg_loss = loss.sum()
         return agg_loss, loss
 
