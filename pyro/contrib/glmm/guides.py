@@ -161,6 +161,27 @@ class LogisticGuide(LinearModelGuide):
         return mu, scale_tril
 
 
+class SigmoidResponseEst(nn.Module):
+
+    def __init__(self, d, observation_sizes, mu_init=0., sigma_init=1., **kwargs):
+
+        super(SigmoidResponseEst, self).__init__()
+
+        self.mu = {l: nn.Parameter(mu_init*torch.ones(d, n)) for l, n in observation_sizes.items()}
+        self.scale_tril = {l: nn.Parameter(sigma_init*torch.ones(d, n, n)) for l, n in observation_sizes.items()}
+        # TODO read from torch float specs
+        self.epsilon = torch.tensor(2**-25)
+
+    def forward(self, design, observation_labels, target_labels):
+
+        pyro.module("gibbs_y_guide", self)
+
+        for l in observation_labels:
+            base_dist = dist.Normal(self.mu[l], scale_tril=rtril(self.scale_tril[l]))
+            y_dist = dist.CensoredDist(base_dist, upper_lim=1.-self.epsilon, lower_lim=self.epsilon).independent(1)
+            pyro.sample(l, y_dist)
+
+
 class LogisticResponseEst(nn.Module):
     
     def __init__(self, d, observation_labels, p_logit_init=0., **kwargs):
@@ -174,7 +195,6 @@ class LogisticResponseEst(nn.Module):
     def forward(self, design, observation_labels, target_labels):
 
         pyro.module("gibbs_y_guide", self)
-        print(self.logits)
 
         for l in observation_labels:
             y_dist = dist.Bernoulli(logits=self.logits[l]).independent(1)

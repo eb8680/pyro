@@ -17,6 +17,9 @@ try:
 except ImportError:
     from contextlib2 import ExitStack  # python 2
 
+# TODO read from torch float spec
+epsilon = torch.tensor(2**-25)
+
 
 def known_covariance_linear_model(coef_mean, coef_sd, observation_sd,
                                   coef_label="w", observation_label="y"):
@@ -254,11 +257,12 @@ def bayesian_linear_model(design, w_means={}, w_sqrtlambdas={}, re_group_sizes={
         elif response == "bernoulli":
             return pyro.sample(response_label, dist.Bernoulli(logits=prediction_mean).independent(1))
         elif response == "sigmoid":
-            base_dist = dist.Normal(prediction_mean, obs_sd).independent(1)
+            base_dist = dist.Normal(prediction_mean, obs_sd)
             # You can add loc via the linear model itself
             k = k.expand(prediction_mean.shape)
             transforms = [AffineTransform(loc=torch.tensor(0.), scale=k), SigmoidTransform()]
-            response_dist = dist.TransformedDistribution(base_dist, transforms)
+            tr_dist = dist.TransformedDistribution(base_dist, transforms)
+            response_dist = dist.CensoredDist(tr_dist, upper_lim=1.-epsilon, lower_lim=epsilon)
             return pyro.sample(response_label, response_dist)
         else:
             raise ValueError("Unknown response distribution: '{}'".format(response))
