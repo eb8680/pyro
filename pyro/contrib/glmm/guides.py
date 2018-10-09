@@ -2,6 +2,7 @@ from __future__ import absolute_import, division, print_function
 
 import torch
 from torch import nn
+from torch.distributions.transforms import AffineTransform, SigmoidTransform
 
 import pyro
 import pyro.distributions as dist
@@ -178,8 +179,9 @@ class SigmoidResponseEst(nn.Module):
 
         for l in observation_labels:
             base_dist = dist.Normal(self.mu[l], scale_tril=rtril(self.scale_tril[l]))
-            y_dist = dist.CensoredDist(base_dist, upper_lim=1.-self.epsilon, lower_lim=self.epsilon).independent(1)
-            pyro.sample(l, y_dist)
+            tr_dist = dist.TransformedDistribution(base_dist, [SigmoidTransform()])
+            response_dist = dist.CensoredDist(tr_dist, upper_lim=1.-epsilon, lower_lim=epsilon).independent(1)
+            pyro.sample(l, response_dist)
 
 
 class LogisticResponseEst(nn.Module):
