@@ -1,17 +1,20 @@
 import torch
-from torch.distributions.distribution import Distribution
+from torch.distributions import constraints
+from torch.distributions.utils import _sum_rightmost
+
+from pyro.distributions.torch_distribution import TorchDistribution
 
 
-class CensoredDistribution(Distribution):
+class CensoredDistribution(TorchDistribution):
 
-    def __init__(self, base_distribition, upper_lim=float('inf'), lower_lim=float('-inf'), validate_args=None):
+    def __init__(self, base_distribution, upper_lim=float('inf'), lower_lim=float('-inf'), validate_args=None):
         # Log-prob only computed correctly for univariate base distribution
-        assert len(base_distribition.event_dim) == 0 or base_distribution.event_dim == (1,)
-        self.base_dist = base_distribition
+        assert base_distribution.event_dim == 0 or base_distribution.event_dim == 1 and base_distribution.event_shape[0] == 1
+        self.base_dist = base_distribution
         self.upper_lim = upper_lim
         self.lower_lim = lower_lim
 
-        super(CensoredDistribution, self).__init__(self.base_dist.batch_shape, self.bsae_dist.event_shape,
+        super(CensoredDistribution, self).__init__(self.base_dist.batch_shape, self.base_dist.event_shape,
                                                    validate_args=validate_args)
 
     @constraints.dependent_property
@@ -30,6 +33,23 @@ class CensoredDistribution(Distribution):
         x[x > self.upper_lim] = self.upper_lim
         x[x < self.lower_lim] = self.lower_lim
 
+
+    def base_lp(self, value):
+        event_dim = len(self.base_dist.event_shape)
+        log_prob = 0.0
+        y = value
+        for transform in reversed(self.base_dist.transforms):
+            x = transform.inv(y)
+            log_prob = log_prob - _sum_rightmost(transform.log_abs_det_jacobian(x, y),
+                                                 event_dim - transform.event_dim)
+
+            y = x
+
+        log_prob = log_prob + _sum_rightmost(self.base_dist.base_dist.log_prob(y),
+                                             event_dim - len(self.base_dist.base_dist.event_shape))
+        return log_prob
+
+
     def log_prob(self, value):
         """
         Scores the sample by giving a probability density relative to a new base measure.
@@ -43,14 +63,25 @@ class CensoredDistribution(Distribution):
         **Note**: `log_prob` scores from distributions with different censoring are not 
         comparable.
         """
-        log_prob = self.base_dist.log_prob(value)
+        # log_prob = self.base_dist.log_prob(value)
+        log_prob = self.base_lp(value)
         upper_cdf = 1. - self.base_dist.cdf(self.upper_lim)
         lower_cdf = self.base_dist.cdf(self.lower_lim)
 
-        log_prob[value == self.upper_lim] = upper_cdf
-        log_prob[value > self.upper_lim] = 0.
-        log_prob[value == self.lower_lim] = lower_cdf
-        log_prob[value < self.lower_lim] = 0.
+        log_prob[value == self.upper_lim] = torch.log(upper_cdf).expand_as(log_prob)[value == self.upper_lim]
+        log_prob[value > self.upper_lim] = float('-inf')
+        log_prob[value == self.lower_lim] = torch.log(lower_cdf).expand_as(log_prob)[value == self.lower_lim]
+        log_prob[value < self.lower_lim] = float('-inf')
+        # print((value <= self.lower_lim).sum())
+        # print((value >= self.upper_lim).sum())
+        # print((value < self.lower_lim).sum())
+        # print((value > self.upper_lim).sum())
+        # print(log_prob[:, -1, :])
+        # print(value[:, -1, :])
+        # print(lower_cdf)
+        # print(upper_cdf)
+        # print(self.base_dist.transforms[0].inv(self.upper_lim))
+        # print(self.base_dist.transforms[0].inv(self.lower_lim))
 
         return log_prob
 
@@ -64,7 +95,4 @@ class CensoredDistribution(Distribution):
     def icdf(self, value):
         # Is this even possible?
         raise NotImplemented
-
-
-
 

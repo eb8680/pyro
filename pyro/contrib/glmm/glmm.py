@@ -18,7 +18,7 @@ except ImportError:
     from contextlib2 import ExitStack  # python 2
 
 # TODO read from torch float spec
-epsilon = torch.tensor(2**-25)
+epsilon = torch.tensor(2**-24)
 
 
 def known_covariance_linear_model(coef_mean, coef_sd, observation_sd,
@@ -262,7 +262,7 @@ def bayesian_linear_model(design, w_means={}, w_sqrtlambdas={}, re_group_sizes={
             k = k.expand(prediction_mean.shape)
             transforms = [AffineTransform(loc=torch.tensor(0.), scale=k), SigmoidTransform()]
             tr_dist = dist.TransformedDistribution(base_dist, transforms)
-            response_dist = dist.CensoredDist(tr_dist, upper_lim=1.-epsilon, lower_lim=epsilon).independent(1)
+            response_dist = dist.CensoredDistribution(tr_dist, upper_lim=1.-epsilon, lower_lim=epsilon).independent(1)
             return pyro.sample(response_label, response_dist)
         else:
             raise ValueError("Unknown response distribution: '{}'".format(response))

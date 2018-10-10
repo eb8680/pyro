@@ -107,8 +107,8 @@ class SigmoidGuide(LinearModelGuide):
         scale_tril = {l: scale_tril[l].expand(mu[l].shape + (mu[l].shape[-1], )) for l in scale_tril}
 
         # Now deal with clipping- values equal to 0 or 1
-        print(mask0.sum(0))
-        print(mask1.sum(0))
+        # print(mask0.sum(0))
+        # print(mask1.sum(0))
         for l in mu.keys():
             mu[l][mask0, :] = self.mu0[l].expand(mu[l].shape)[mask0, :]
             mu[l][mask1, :] = self.mu1[l].expand(mu[l].shape)[mask1, :]
@@ -164,24 +164,35 @@ class LogisticGuide(LinearModelGuide):
 
 class SigmoidResponseEst(nn.Module):
 
-    def __init__(self, d, observation_sizes, mu_init=0., sigma_init=1., **kwargs):
+    def __init__(self, d, observation_labels, mu_init=0., sigma_init=20., **kwargs):
 
         super(SigmoidResponseEst, self).__init__()
 
-        self.mu = {l: nn.Parameter(mu_init*torch.ones(d, n)) for l, n in observation_sizes.items()}
-        self.scale_tril = {l: nn.Parameter(sigma_init*torch.ones(d, n, n)) for l, n in observation_sizes.items()}
+        self.mu = {l: nn.Parameter(mu_init*torch.ones(d, 1)) for l in observation_labels}
+        self.sigma = {l: nn.Parameter(sigma_init*torch.ones(d, 1)) for l in observation_labels}
+        self._registered_mu = nn.ParameterList(self.mu.values())
+        self._registered_sigma = nn.ParameterList(self.sigma.values())
         # TODO read from torch float specs
-        self.epsilon = torch.tensor(2**-25)
+        self.epsilon = torch.tensor(2**-24)
+        self.softplus = nn.Softplus()
 
     def forward(self, design, observation_labels, target_labels):
 
         pyro.module("gibbs_y_guide", self)
 
         for l in observation_labels:
-            base_dist = dist.Normal(self.mu[l], scale_tril=rtril(self.scale_tril[l]))
+            # print(self.mu, self.sigma)
+            if torch.isnan(self.sigma['y']).any() or torch.isnan(self.mu['y']).any():
+                raise
+            # self.mu['y'].register_hook(print)
+            base_dist = dist.Normal(self.mu[l], self.softplus(self.sigma[l]))
             tr_dist = dist.TransformedDistribution(base_dist, [SigmoidTransform()])
-            response_dist = dist.CensoredDist(tr_dist, upper_lim=1.-epsilon, lower_lim=epsilon).independent(1)
-            pyro.sample(l, response_dist)
+            response_dist = dist.CensoredDistribution(
+                    tr_dist, upper_lim=1.-self.epsilon, lower_lim=self.epsilon).independent(1)
+            y = pyro.sample(l, response_dist)
+            x = SigmoidTransform().inv(y)
+            print(-((x - self.mu[l]) ** 2) / (2 * self.sigma[l]**2) - self.sigma[l].log())
+            print((x - self.mu[l]) / (self.sigma[l]**2))
 
 
 class LogisticResponseEst(nn.Module):

@@ -23,7 +23,7 @@ from pyro.contrib.glmm import (
 )
 from pyro.contrib.glmm.guides import (
     LinearModelGuide, NormalInverseGammaGuide, SigmoidGuide, GuideDV, LogisticGuide,
-    LogisticResponseEst
+    LogisticResponseEst, SigmoidResponseEst
 )
 
 PLOT = True
@@ -112,6 +112,7 @@ logistic_2p_model = logistic_regression_model(torch.tensor([1., 5.]), torch.tens
 loc_ba_guide = lambda d: LinearModelGuide(d, {"w1": 2})  # noqa: E731
 logistic_guide  = lambda d: LogisticGuide(d, {"w1": 2})
 logistic_response_est = lambda d: LogisticResponseEst(d, ["y"])
+sigmoid_response_est = lambda d: SigmoidResponseEst(d, ["y"])
 # sigmoid_gamma_12p_model = sigmoid_model_gamma(torch.tensor(0.), torch.tensor([10., 2.5]), torch.tensor(0.),
 #                                               torch.tensor([1.]*5 + [10.]*5), torch.tensor(1.),
 #                                               10.*torch.ones(10), 10.*torch.ones(10), AB_sigmoid_design_6d)
@@ -146,6 +147,24 @@ T = namedtuple("CompareEstimatorsExample", [
 
 CMP_TEST_CASES = [
     T(
+        "Sigmoid link function: location finding with 1d response",
+        sigmoid_high_2p_model,
+        loc_10d_1n_2p,
+        "y",
+        "w1",
+        [
+            (gibbs_y_eig,
+             [40, 1200, sigmoid_response_est(15), optim.Adam({"lr": 0.05}),
+              False, None, 500]),
+            (donsker_varadhan_eig,
+             [400, 80, GuideDV(sigmoid_high_guide(15)),
+              optim.Adam({"lr": 0.05}), False, None, 500]),
+            (ba_eig_mc,
+             [40, 800, sigmoid_high_guide(15), optim.Adam({"lr": 0.05}),
+              False, None, 500])
+        ]
+    ),
+    T(
         "Logistic regression",
         logistic_2p_model,
         loc_10d_1n_2p,
@@ -161,21 +180,6 @@ CMP_TEST_CASES = [
             (donsker_varadhan_eig,
              [400, 400, GuideDV(logistic_guide(15)),
               optim.Adam({"lr": 0.05}), False, None, 500]),
-        ]
-    ),
-    T(
-        "Sigmoid link function: location finding with 1d response",
-        sigmoid_high_2p_model,
-        loc_10d_1n_2p,
-        "y",
-        "w1",
-        [
-            (donsker_varadhan_eig,
-             [400, 400, GuideDV(sigmoid_high_guide(15)),
-              optim.Adam({"lr": 0.05}), False, None, 500]),
-            (ba_eig_mc,
-             [40, 800, sigmoid_high_guide(15), optim.Adam({"lr": 0.05}),
-              False, None, 500])
         ]
     ),
     T(

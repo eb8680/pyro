@@ -362,7 +362,6 @@ def gibbs_y_loss(model, guide, observation_labels, target_labels):
         # Sample from p(y | d)
         trace = poutine.trace(model).get_trace(expanded_design)
         y_dict = {l: trace.nodes[l]["value"] for l in observation_labels}
-        print(y_dict['y'].sum(0))
 
         # Run through q(y | d)
         conditional_guide = pyro.condition(guide, data=y_dict)
