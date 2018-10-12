@@ -191,9 +191,8 @@ class SigmoidResponseEst(nn.Module):
                     tr_dist, upper_lim=1.-self.epsilon, lower_lim=self.epsilon).independent(1)
             y = pyro.sample(l, response_dist)
             x = SigmoidTransform().inv(y)
-            print(-((x - self.mu[l]) ** 2) / (2 * self.sigma[l]**2) - self.sigma[l].log())
-            print((x - self.mu[l]) / (self.sigma[l]**2))
-
+            # print(x[:, -1, :])
+            # print((x[:, -1, :] - self.mu[l][-1, :])/self.sigma[l][-1, :])
 
 class LogisticResponseEst(nn.Module):
     

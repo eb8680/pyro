@@ -34,22 +34,6 @@ class CensoredDistribution(TorchDistribution):
         x[x < self.lower_lim] = self.lower_lim
 
 
-    def base_lp(self, value):
-        event_dim = len(self.base_dist.event_shape)
-        log_prob = 0.0
-        y = value
-        for transform in reversed(self.base_dist.transforms):
-            x = transform.inv(y)
-            log_prob = log_prob - _sum_rightmost(transform.log_abs_det_jacobian(x, y),
-                                                 event_dim - transform.event_dim)
-
-            y = x
-
-        log_prob = log_prob + _sum_rightmost(self.base_dist.base_dist.log_prob(y),
-                                             event_dim - len(self.base_dist.base_dist.event_shape))
-        return log_prob
-
-
     def log_prob(self, value):
         """
         Scores the sample by giving a probability density relative to a new base measure.
@@ -63,25 +47,16 @@ class CensoredDistribution(TorchDistribution):
         **Note**: `log_prob` scores from distributions with different censoring are not 
         comparable.
         """
-        # log_prob = self.base_dist.log_prob(value)
-        log_prob = self.base_lp(value)
+        log_prob = self.base_dist.log_prob(value)
         upper_cdf = 1. - self.base_dist.cdf(self.upper_lim)
         lower_cdf = self.base_dist.cdf(self.lower_lim)
+        lower_cdf.register_hook(print)
+        print(torch.log(lower_cdf))
 
         log_prob[value == self.upper_lim] = torch.log(upper_cdf).expand_as(log_prob)[value == self.upper_lim]
         log_prob[value > self.upper_lim] = float('-inf')
         log_prob[value == self.lower_lim] = torch.log(lower_cdf).expand_as(log_prob)[value == self.lower_lim]
         log_prob[value < self.lower_lim] = float('-inf')
-        # print((value <= self.lower_lim).sum())
-        # print((value >= self.upper_lim).sum())
-        # print((value < self.lower_lim).sum())
-        # print((value > self.upper_lim).sum())
-        # print(log_prob[:, -1, :])
-        # print(value[:, -1, :])
-        # print(lower_cdf)
-        # print(upper_cdf)
-        # print(self.base_dist.transforms[0].inv(self.upper_lim))
-        # print(self.base_dist.transforms[0].inv(self.lower_lim))
 
         return log_prob
 
