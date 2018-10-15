@@ -50,12 +50,10 @@ class CensoredDistribution(TorchDistribution):
         log_prob = self.base_dist.log_prob(value)
         upper_cdf = 1. - self.base_dist.cdf(self.upper_lim)
         lower_cdf = self.base_dist.cdf(self.lower_lim)
-        lower_cdf.register_hook(print)
-        print(torch.log(lower_cdf))
 
-        log_prob[value == self.upper_lim] = torch.log(upper_cdf).expand_as(log_prob)[value == self.upper_lim]
+        log_prob[value == self.upper_lim] = torch.log(upper_cdf.expand_as(log_prob)[value == self.upper_lim])
         log_prob[value > self.upper_lim] = float('-inf')
-        log_prob[value == self.lower_lim] = torch.log(lower_cdf).expand_as(log_prob)[value == self.lower_lim]
+        log_prob[value == self.lower_lim] = torch.log(lower_cdf.expand_as(log_prob)[value == self.lower_lim])
         log_prob[value < self.lower_lim] = float('-inf')
 
         return log_prob
