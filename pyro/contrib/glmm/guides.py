@@ -107,8 +107,6 @@ class SigmoidGuide(LinearModelGuide):
         scale_tril = {l: scale_tril[l].expand(mu[l].shape + (mu[l].shape[-1], )) for l in scale_tril}
 
         # Now deal with clipping- values equal to 0 or 1
-        # print(mask0.sum(0))
-        # print(mask1.sum(0))
         for l in mu.keys():
             mu[l][mask0, :] = self.mu0[l].expand(mu[l].shape)[mask0, :]
             mu[l][mask1, :] = self.mu1[l].expand(mu[l].shape)[mask1, :]
@@ -145,9 +143,6 @@ class LogisticGuide(LinearModelGuide):
         y = torch.cat(list(y_dict.values()), dim=-1)
         mask0 = (y == 0.).squeeze(-1)
         mask1 = (y == 1.).squeeze(-1)
-        # print(mask0.sum(0))
-        # print(mask1.sum(0))
-        # print(self.mu0, self.scale_tril0, self.mu1, self.scale_tril1)
 
         mu = {}
         scale_tril = {}
@@ -181,18 +176,14 @@ class SigmoidResponseEst(nn.Module):
         pyro.module("gibbs_y_guide", self)
 
         for l in observation_labels:
-            # print(self.mu, self.sigma)
             if torch.isnan(self.sigma['y']).any() or torch.isnan(self.mu['y']).any():
-                raise
-            # self.mu['y'].register_hook(print)
+                raise ValueError
             base_dist = dist.Normal(self.mu[l], self.softplus(self.sigma[l]))
             tr_dist = dist.TransformedDistribution(base_dist, [SigmoidTransform()])
             response_dist = dist.CensoredDistribution(
                     tr_dist, upper_lim=1.-self.epsilon, lower_lim=self.epsilon).independent(1)
             y = pyro.sample(l, response_dist)
             x = SigmoidTransform().inv(y)
-            # print(x[:, -1, :])
-            # print((x[:, -1, :] - self.mu[l][-1, :])/self.sigma[l][-1, :])
 
 class LogisticResponseEst(nn.Module):
     

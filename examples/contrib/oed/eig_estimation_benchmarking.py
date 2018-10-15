@@ -156,12 +156,12 @@ CMP_TEST_CASES = [
             (gibbs_y_eig,
              [40, 1200, sigmoid_response_est(15), optim.Adam({"lr": 0.05}),
               False, None, 500]),
-            (donsker_varadhan_eig,
-             [400, 80, GuideDV(sigmoid_high_guide(15)),
-              optim.Adam({"lr": 0.05}), False, None, 500]),
             (ba_eig_mc,
              [40, 800, sigmoid_high_guide(15), optim.Adam({"lr": 0.05}),
-              False, None, 500])
+              False, None, 500]),
+            (donsker_varadhan_eig,
+             [400, 80, GuideDV(sigmoid_high_guide(15)),
+              optim.Adam({"lr": 0.05}), False, None, 500])
         ]
     ),
     T(
