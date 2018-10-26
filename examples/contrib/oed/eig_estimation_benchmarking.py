@@ -168,7 +168,13 @@ CMP_TEST_CASES = [
               optim.Adam({"lr": 0.05}), False, None, 500]),
             (ba_eig_mc,
              [40, 800, sigmoid_random_effect_guide(15), optim.Adam({"lr": 0.05}),
-              False, None, 500])
+              False, None, 500]),
+            # (gibbs_y_re_eig,
+            #  [40, 32000, sigmoid_response_est(15), sigmoid_cond_response_est(15),
+            #   optim.Adam({"lr": 0.05}), False, None, 500]),
+            # (ba_eig_mc,
+            #  [40, 16000, sigmoid_random_effect_guide(15), optim.Adam({"lr": 0.05}),
+            #   False, None, 500])
         ]
     ),
     T(
