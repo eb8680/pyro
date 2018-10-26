@@ -261,6 +261,22 @@ def gibbs_y_eig(model, design, observation_labels, target_labels,
                             final_design, final_num_samples)
 
 
+def gibbs_y_re_eig(model, design, observation_labels, target_labels,
+                   num_samples, num_steps, marginal_guide, cond_guide, optim, 
+                   return_history=False, final_design=None, final_num_samples=None):
+    """Estimate EIG by estimating the marginal entropy, that of :math:`p(y|d)`,
+    *and* the conditional entropy, of :math:`p(y|\\theta, d)`, both via Gibbs' Inequality.
+    """
+
+    if isinstance(observation_labels, str):
+        observation_labels = [observation_labels]
+    if isinstance(target_labels, str):
+        target_labels = [target_labels]
+    loss = gibbs_y_re_loss(model, marginal_guide, cond_guide, observation_labels, target_labels)
+    return opt_eig_ape_loss(design, loss, num_samples, num_steps, optim, return_history,
+                            final_design, final_num_samples)
+
+
 def opt_eig_ape_loss(design, loss_fn, num_samples, num_steps, optim, return_history=False,
                      final_design=None, final_num_samples=None):
 
@@ -375,6 +391,44 @@ def gibbs_y_loss(model, guide, observation_labels, target_labels):
         if evaluation:
             trace.compute_log_prob()
             loss += sum(trace.nodes[l]["log_prob"] for l in observation_labels).sum(0)/num_particles
+
+        agg_loss = loss.sum()
+        return agg_loss, loss
+
+    return loss_fn
+
+
+def gibbs_y_re_loss(model, marginal_guide, cond_guide, observation_labels, target_labels):
+
+    def loss_fn(design, num_particles, evaluation=False, **kwargs):
+
+        expanded_design = lexpand(design, num_particles)
+
+        # Sample from p(y | d)
+        trace = poutine.trace(model).get_trace(expanded_design)
+        y_dict = {l: trace.nodes[l]["value"] for l in observation_labels}
+        theta_dict = {l: trace.nodes[l]["value"] for l in target_labels}
+
+        # Run through q(y | d)
+        qyd = pyro.condition(marginal_guide, data=y_dict)
+        marginal_trace = poutine.trace(qyd).get_trace(
+             expanded_design, observation_labels, target_labels)
+        marginal_trace.compute_log_prob()
+
+        # Run through q(y | theta, d)
+        qythetad = pyro.condition(cond_guide, data=y_dict)
+        cond_trace = poutine.trace(qythetad).get_trace(
+                theta_dict, expanded_design, observation_labels, target_labels)
+        cond_trace.compute_log_prob()
+
+        loss = -sum(marginal_trace.nodes[l]["log_prob"] for l in observation_labels).sum(0)/num_particles
+
+        # At evaluation time, use the right estimator, q(y | theta, d) - y(y | d)
+        # At training time, use -q(y | theta, d) - q(y | d) so gradient go the same way
+        if evaluation:
+            loss += sum(cond_trace.nodes[l]["log_prob"] for l in observation_labels).sum(0)/num_particles
+        else:
+            loss -= sum(cond_trace.nodes[l]["log_prob"] for l in observation_labels).sum(0)/num_particles
 
         agg_loss = loss.sum()
         return agg_loss, loss

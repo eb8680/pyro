@@ -7,7 +7,7 @@ from torch.distributions.transforms import AffineTransform, SigmoidTransform
 import pyro
 import pyro.distributions as dist
 from pyro import poutine
-from pyro.contrib.util import tensor_to_dict, rmv, rvv, rtril
+from pyro.contrib.util import get_indices, tensor_to_dict, rmv, rvv, rtril
 from pyro.ops.linalg import rinverse
 
 
@@ -71,7 +71,7 @@ class LinearModelGuide(nn.Module):
 
 class SigmoidGuide(LinearModelGuide):
 
-    def __init__(self, d, n, w_sizes, slope, scale_tril_init=3., mu_init=0., **kwargs):
+    def __init__(self, d, w_sizes, slope, scale_tril_init=3., mu_init=0., **kwargs):
         super(SigmoidGuide, self).__init__(d, w_sizes, scale_tril_init=scale_tril_init,
                                            **kwargs)
         self.inverse_sigmoid_scale = 1./slope
@@ -153,7 +153,7 @@ class LogisticGuide(LinearModelGuide):
             mu[l][mask1, :] = self.mu1[l].expand(mu[l].shape)[mask1, :]
             scale_tril[l][mask0, :, :] = rtril(self.scale_tril0[l].expand(scale_tril[l].shape))[mask0, :, :]
             scale_tril[l][mask1, :, :] = rtril(self.scale_tril1[l].expand(scale_tril[l].shape))[mask1, :, :]
-
+        
         return mu, scale_tril
 
 
@@ -185,6 +185,7 @@ class SigmoidResponseEst(nn.Module):
             y = pyro.sample(l, response_dist)
             x = SigmoidTransform().inv(y)
 
+
 class LogisticResponseEst(nn.Module):
     
     def __init__(self, d, observation_labels, p_logit_init=0., **kwargs):
@@ -198,9 +199,42 @@ class LogisticResponseEst(nn.Module):
     def forward(self, design, observation_labels, target_labels):
 
         pyro.module("gibbs_y_guide", self)
+        print('logits', self.logits)
 
         for l in observation_labels:
             y_dist = dist.Bernoulli(logits=self.logits[l]).independent(1)
+            pyro.sample(l, y_dist)
+
+
+class LogisticCondResponseEst(nn.Module):
+    
+    def __init__(self, d, w_sizes, observation_labels, p_logit_init=0., **kwargs):
+
+        super(LogisticCondResponseEst, self).__init__()
+
+        self.logit_correction = {l: nn.Parameter(p_logit_init*torch.ones(d, 1)) for l in observation_labels}
+        self.logit_offset = {l: nn.Parameter(torch.zeros(d, 1)) for l in observation_labels}
+        self._registered_correction = nn.ParameterList(self.logit_correction.values())
+        self._registered_offset = nn.ParameterList(self.logit_offset.values())
+        self.w_sizes = w_sizes
+        self.sigmoid = nn.Sigmoid()
+        self.softplus = nn.Softplus()
+    
+    def forward(self, theta_dict, design, observation_labels, target_labels):
+
+        theta = torch.cat(list(theta_dict.values()), dim=-1)
+        indices = get_indices(target_labels, self.w_sizes)
+        subdesign = design[..., indices]
+        centre = rmv(subdesign, theta)
+
+        pyro.module("gibbs_y_re_guide", self)
+        print('offset', self.logit_offset)
+        print('corrections', self.logit_correction)
+
+        for l in observation_labels:
+            p = .5*(self.sigmoid(centre + self.logit_offset[l] + self.softplus(self.logit_correction[l]))
+                    + self.sigmoid(centre + self.logit_offset[l] - self.softplus(self.logit_correction[l])))
+            y_dist = dist.Bernoulli(p).independent(1)
             pyro.sample(l, y_dist)
 
 

@@ -81,10 +81,18 @@ def normal_inverse_gamma_guide(coef_shape, coef_label="w", **kwargs):
     return partial(normal_inv_gamma_family_guide, obs_sd=None, w_sizes={coef_label: coef_shape}, **kwargs)
 
 
-def logistic_regression_model(coef_mean, coef_sd, coef_label="w", observation_label="y"):
+def logistic_regression_model(coef_means, coef_sds, coef_labels="w", observation_label="y"):
+
+    if not isinstance(coef_means, list):
+        coef_means = [coef_means]
+    if not isinstance(coef_sds, list):
+        coef_sds = [coef_sds]
+    if not isinstance(coef_labels, list):
+        coef_labels = [coef_labels]
+
     return partial(bayesian_linear_model,
-                   w_means={coef_label: coef_mean},
-                   w_sqrtlambdas={coef_label: 1./coef_sd},
+                   w_means=OrderedDict([(label, mean) for label, mean in zip(coef_labels, coef_means)]),
+                   w_sqrtlambdas=OrderedDict([(label, 1./sd) for label, sd in zip(coef_labels, coef_sds)]),
                    obs_sd=torch.tensor(1.),
                    response="bernoulli",
                    response_label=observation_label)
@@ -130,19 +138,27 @@ def sigmoid_model_gamma(coef1_mean, coef1_sd, coef2_mean, coef2_sd, observation_
     return model
 
 
-def sigmoid_model_fixed(coef1_mean, coef1_sd, observation_sd, slope, coef1_label="w1", observation_label="y"):
+def sigmoid_model_fixed(coef_means, coef_sds, observation_sd, slope, coef_labels="w", observation_label="y"):
+
+    if not isinstance(coef_means, list):
+        coef_means = [coef_means]
+    if not isinstance(coef_sds, list):
+        coef_sds = [coef_sds]
+    if not isinstance(coef_labels, list):
+        coef_labels = [coef_labels]
+
     def model(design):
         
         return bayesian_linear_model(
             design,
-            w_means={coef1_label: coef1_mean},
-            w_sqrtlambdas={coef1_label: 1./(observation_sd*coef1_sd)},
+            w_means=OrderedDict([(label, mean) for label, mean in zip(coef_labels, coef_means)]),
+            w_sqrtlambdas=OrderedDict([(label, 1./(observation_sd*sd)) for label, sd in zip(coef_labels, coef_sds)]),
             obs_sd=observation_sd,
             response="sigmoid",
             response_label=observation_label,
             k=slope
             )
-    model.w_sds = {coef1_label: coef1_sd}
+    model.w_sds = OrderedDict([(label, sd) for label, sd in zip(coef_labels, coef_sds)])
     model.obs_sd = observation_sd
     return model
 
