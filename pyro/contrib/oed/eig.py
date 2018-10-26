@@ -424,7 +424,7 @@ def gibbs_y_re_loss(model, marginal_guide, cond_guide, observation_labels, targe
         loss = -sum(marginal_trace.nodes[l]["log_prob"] for l in observation_labels).sum(0)/num_particles
 
         # At evaluation time, use the right estimator, q(y | theta, d) - y(y | d)
-        # At training time, use -q(y | theta, d) - q(y | d) so gradient go the same way
+        # At training time, use -q(y | theta, d) - q(y | d) so gradients go the same way
         if evaluation:
             loss += sum(cond_trace.nodes[l]["log_prob"] for l in observation_labels).sum(0)/num_particles
         else:

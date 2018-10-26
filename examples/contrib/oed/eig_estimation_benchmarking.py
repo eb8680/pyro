@@ -24,7 +24,7 @@ from pyro.contrib.glmm import (
 )
 from pyro.contrib.glmm.guides import (
     LinearModelGuide, NormalInverseGammaGuide, SigmoidGuide, GuideDV, LogisticGuide,
-    LogisticResponseEst, LogisticCondResponseEst, SigmoidResponseEst
+    LogisticResponseEst, LogisticCondResponseEst, SigmoidResponseEst, SigmoidCondResponseEst
 )
 
 PLOT = True
@@ -123,9 +123,10 @@ logistic_random_effect_guide = lambda d: LogisticGuide(d, {"loc": 1})
 logistic_response_est = lambda d: LogisticResponseEst(d, ["y"])
 logistic_cond_response_est = lambda d: LogisticCondResponseEst(d, {"coef": 1, "loc": 1}, ["y"])
 sigmoid_response_est = lambda d: SigmoidResponseEst(d, ["y"])
+sigmoid_cond_response_est = lambda d: SigmoidCondResponseEst(d, {"coef": 1, "loc": 1}, ["y"])
 sigmoid_low_guide = lambda d: SigmoidGuide(d, {"w": 2}, torch.tensor(.5))  # noqa: E731
 sigmoid_high_guide = lambda d: SigmoidGuide(d, {"w": 2}, torch.tensor(2.))  # noqa: E731
-sigmoid_random_effect_guide = lambda d: SigmoidGuide(d, {"loc": 1}, torch.tensor(2.))
+sigmoid_random_effect_guide = lambda d: SigmoidGuide(d, {"coef": 1, "loc": 1}, torch.tensor(2.))
 
 ########################################################################################
 # Aux
@@ -156,27 +157,15 @@ T = namedtuple("CompareEstimatorsExample", [
 
 CMP_TEST_CASES = [
     T(
-        "Logistic with random effects",
-        logistic_random_effects,
-        loc_15d_1n_2p,
-        "y",
-        "loc",
-        [
-            (gibbs_y_re_eig,
-             [40, 1200, logistic_response_est(15), logistic_cond_response_est(15),
-              optim.Adam({"lr": 0.05}), False, None, 500]),
-            (ba_eig_mc,
-             [40, 800, logistic_random_effect_guide(15), optim.Adam({"lr": 0.05}),
-              False, None, 500]),
-        ]
-    ),
-    T(
         "Sigmoid with random effects",
         sigmoid_high_random_effects,
         loc_15d_1n_2p,
         "y",
         "loc",
         [
+            (gibbs_y_re_eig,
+             [40, 1600, sigmoid_response_est(15), sigmoid_cond_response_est(15),
+              optim.Adam({"lr": 0.05}), False, None, 500]),
             (ba_eig_mc,
              [40, 800, sigmoid_random_effect_guide(15), optim.Adam({"lr": 0.05}),
               False, None, 500])
@@ -198,6 +187,21 @@ CMP_TEST_CASES = [
             #(donsker_varadhan_eig,
             # [400, 80, GuideDV(sigmoid_high_guide(15)),
             #  optim.Adam({"lr": 0.05}), False, None, 500])
+        ]
+    ),
+    T(
+        "Logistic with random effects",
+        logistic_random_effects,
+        loc_15d_1n_2p,
+        "y",
+        "loc",
+        [
+            (gibbs_y_re_eig,
+             [40, 1200, logistic_response_est(15), logistic_cond_response_est(15),
+              optim.Adam({"lr": 0.05}), False, None, 500]),
+            (ba_eig_mc,
+             [40, 800, logistic_random_effect_guide(15), optim.Adam({"lr": 0.05}),
+              False, None, 500]),
         ]
     ),
     T(

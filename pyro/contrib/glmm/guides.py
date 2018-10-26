@@ -176,14 +176,35 @@ class SigmoidResponseEst(nn.Module):
         pyro.module("gibbs_y_guide", self)
 
         for l in observation_labels:
-            if torch.isnan(self.sigma['y']).any() or torch.isnan(self.mu['y']).any():
-                raise ValueError
-            base_dist = dist.Normal(self.mu[l], self.softplus(self.sigma[l]))
+            self.sample_sigmoid(l, self.mu[l], self.sigma[l])
+
+    def sample_sigmoid(self, label, mu, sigma):
+
+            base_dist = dist.Normal(mu, self.softplus(sigma))
             tr_dist = dist.TransformedDistribution(base_dist, [SigmoidTransform()])
             response_dist = dist.CensoredDistribution(
                     tr_dist, upper_lim=1.-self.epsilon, lower_lim=self.epsilon).independent(1)
-            y = pyro.sample(l, response_dist)
-            x = SigmoidTransform().inv(y)
+            pyro.sample(label, response_dist)
+
+
+class SigmoidCondResponseEst(SigmoidResponseEst):
+
+    def __init__(self, d, w_sizes, observation_labels, mu_init=0., sigma_init=20., **kwargs):
+
+        super(SigmoidCondResponseEst, self).__init__(d, observation_labels, mu_init, sigma_init, **kwargs)
+        self.w_sizes = w_sizes
+
+    def forward(self, theta_dict, design, observation_labels, target_labels):
+
+        theta = torch.cat(list(theta_dict.values()), dim=-1)
+        indices = get_indices(target_labels, self.w_sizes)
+        subdesign = design[..., indices]
+        centre = rmv(subdesign, theta)
+        
+        pyro.module("gibbs_y_re_guide", self)
+
+        for l in observation_labels:
+            self.sample_sigmoid(l, centre + self.mu[l], self.sigma[l])
 
 
 class LogisticResponseEst(nn.Module):
@@ -199,7 +220,6 @@ class LogisticResponseEst(nn.Module):
     def forward(self, design, observation_labels, target_labels):
 
         pyro.module("gibbs_y_guide", self)
-        print('logits', self.logits)
 
         for l in observation_labels:
             y_dist = dist.Bernoulli(logits=self.logits[l]).independent(1)
@@ -228,8 +248,6 @@ class LogisticCondResponseEst(nn.Module):
         centre = rmv(subdesign, theta)
 
         pyro.module("gibbs_y_re_guide", self)
-        print('offset', self.logit_offset)
-        print('corrections', self.logit_correction)
 
         for l in observation_labels:
             p = .5*(self.sigmoid(centre + self.logit_offset[l] + self.softplus(self.logit_correction[l]))
