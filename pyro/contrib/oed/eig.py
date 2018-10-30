@@ -8,7 +8,7 @@ from pyro import poutine
 from pyro.contrib.oed.search import Search
 from pyro.infer import EmpiricalMarginal, Importance, SVI
 from pyro.contrib.autoguide import mean_field_guide_entropy
-from pyro.contrib.util import lexpand
+from pyro.contrib.util import lexpand, rexpand
 
 
 def vi_ape(model, design, observation_labels, target_labels,
@@ -79,16 +79,23 @@ def naive_rainforth_eig(model, design, observation_labels, target_labels=None,
                         N=100, M=10, M_prime=None):
     """
     Naive Rainforth (i.e. Nested Monte Carlo) estimate of the expected information
-    gain (EIG). The estimate is
+    gain (EIG). The estimate is, when there are not any random effects,
 
     .. math::
 
         \\frac{1}{N}\\sum_{n=1}^N \\log p(y_n | \\theta_n, d) -
-        \\log \\left(\\frac{1}{M}\\sum_{m=1}^M p(y_n | \\theta_m, d)\\right)
+        \\frac{1}{N}\\sum_{n=1}^N \\log \\left(\\frac{1}{M}\\sum_{m=1}^M p(y_n | \\theta_m, d)\\right)
 
-    Monte Carlo estimation is attempted for the :math:`\\log p(y | \\theta, d)` term if
-    the parameter `M_prime` is passed. Otherwise, it is assumed that that :math:`\\log p(y | \\theta, d)`
-    can safely be read from the model itself.
+    The estimate is, in the presence of random effects,
+
+    .. math::
+
+        \\frac{1}{N}\\sum_{n=1}^N  \\log \\left(\\frac{1}{M'}\\sum_{m=1}^{M'}
+        p(y_n | \\theta_n, \\widetilde{\\theta}_{nm}, d)\\right)-
+        \\frac{1}{N}\\sum_{n=1}^N \\log \\left(\\frac{1}{M}\\sum_{m=1}^{M}
+        p(y_n | \\theta_m, \\widetilde{\\theta}_{m}, d)\\right)
+
+    The latter form is used when `M_prime != None`.
 
     :param function model: A pyro model accepting `design` as only argument.
     :param torch.Tensor design: Tensor representation of design
@@ -105,13 +112,13 @@ def naive_rainforth_eig(model, design, observation_labels, target_labels=None,
     :rtype: `torch.Tensor`
     """
 
-    if isinstance(observation_labels, str):
+    if isinstance(observation_labels, str):  # list of strings instead of strings
         observation_labels = [observation_labels]
     if isinstance(target_labels, str):
         target_labels = [target_labels]
 
     # Take N samples of the model
-    expanded_design = lexpand(design, N)
+    expanded_design = lexpand(design, N)  # N copies of the model
     trace = poutine.trace(model).get_trace(expanded_design)
     trace.compute_log_prob()
 
@@ -138,13 +145,85 @@ def naive_rainforth_eig(model, design, observation_labels, target_labels=None,
     conditional_model = pyro.condition(model, data=y_dict)
     # Using (M, 1) instead of (M, N) - acceptable to re-use thetas between ys because
     # theta comes before y in graphical model
-    reexpanded_design = lexpand(design, M, 1)
+    reexpanded_design = lexpand(design, M, 1)  # sample M theta
     retrace = poutine.trace(conditional_model).get_trace(reexpanded_design)
     retrace.compute_log_prob()
     marginal_lp = logsumexp(sum(retrace.nodes[l]["log_prob"] for l in observation_labels), 0) \
         - np.log(M)
 
     return (conditional_lp - marginal_lp).sum(0)/N
+
+
+def accelerated_rainforth_eig(model, design, observation_labels, target_labels,
+                              yspace, N=100, M_prime=None):
+    """
+    Accelerated Rainforth (i.e. Unnested Monte Carlo) estimate of the expected information
+    gain (EIG). The estimate is, when there are not any random effects,
+
+    .. math::
+
+            \\frac{1}{N}\\sum_{n=1}^N\\sum_{y=1}^{|Y|}p(y | \\theta_n, d) \\log p(y | \\theta_n, d)-
+            \\sum_{y=1}^{|Y|}\\left[ \\left( \\frac{1}{N} \\sum_{n=1}^N p(y | \\theta_n, d)\\right)
+            log\\left(\\frac{1}{N}\\sum_{n=1}^N p(y | \\theta_n, d)\\right)\\right]
+
+    The estimate is, in the presence of random effects,
+
+    .. math::
+
+        \\frac{1}{N}\\sum_{n=1}^N\\sum_{y=1}^{|Y|}\\left(\\left(\\frac{1}{M'}\\sum_{m=1}^{M'}
+        p(y | \\theta_n, \\widetilde{\\theta}_{nm}, d)\\right)
+        \\log \\left(\\frac{1}{M'}\\sum_{m=1}^{M'}p(y | \\theta_n, \\widetilde{\\theta}_{nm}, d)\\right)\\right)-
+        \\sum_{y=1}^{|Y|}\\left(\\left( \\frac{1}{N}\\sum_{n=1}^N p(y | \\theta_n, \\widetilde{\\theta}_{n}, d)\\right)
+        \\log \\left(\\frac{1}{N}\\sum_{n=1}^N p(y | \\theta_n, \\widetilde{\\theta}_{n}, d)\\right)\\right)
+
+    The latter form is used when `M_prime != None`.
+
+    :param function model: A pyro model accepting `design` as only argument.
+    :param torch.Tensor design: Tensor representation of design
+    :param list observation_labels: A subset of the sample sites
+        present in `model`. These sites are regarded as future observations
+        and other sites are regarded as latent variables over which a
+        posterior is to be inferred.
+    :param list target_labels: A subset of the sample sites over which the posterior
+        entropy is to be measured.
+    :param dictionary yspace: maps y to a tensor that contains the possible values that y can take
+    :param int N: Number of outer expectation samples.
+    :param int M_prime: Number of samples for `p(y | theta, d)` if required.
+    :return: EIG estimate
+    :rtype: `torch.Tensor`
+    """
+
+    if isinstance(observation_labels, str):  # list of strings instead of strings
+        observation_labels = [observation_labels]
+    if isinstance(target_labels, str):
+        target_labels = [target_labels]
+
+    expanded_design = lexpand(design, N, 1)  # N copies of the model
+    shape = list(design.shape[:-1])
+    expanded_yspace = {k: rexpand(y, *shape) for k, y in yspace.items()}
+    newmodel = pyro.condition(model, data=expanded_yspace)
+    trace = poutine.trace(newmodel).get_trace(expanded_design)
+    trace.compute_log_prob()
+    lp = sum(trace.nodes[l]["log_prob"] for l in observation_labels)
+
+    if M_prime is None:
+        first_term = xexpx(lp).sum(0).sum(0)/N
+
+    else:
+        y_dict = {l: lexpand(trace.nodes[l]["value"], M_prime, 1) for l in observation_labels}
+        theta_dict = {l: lexpand(trace.nodes[l]["value"], M_prime) for l in target_labels}
+        theta_dict.update(y_dict)
+        # Resample M values of theta_tilde and compute conditional probabilities
+        othermodel = pyro.condition(model, data=theta_dict)
+        reexpanded_design = lexpand(design, M_prime, N, 1)
+        retrace = poutine.trace(othermodel).get_trace(reexpanded_design)
+        retrace.compute_log_prob()
+        relp = logsumexp(sum(retrace.nodes[l]["log_prob"] for l in observation_labels), 0) \
+            - np.log(M_prime)
+        first_term = xexpx(relp).sum(0).sum(0)/N
+
+    second_term = xexpx(logsumexp(lp, 0) - np.log(N)).sum(0)
+    return first_term - second_term
 
 
 def donsker_varadhan_eig(model, design, observation_labels, target_labels,
@@ -262,7 +341,7 @@ def gibbs_y_eig(model, design, observation_labels, target_labels,
 
 
 def gibbs_y_re_eig(model, design, observation_labels, target_labels,
-                   num_samples, num_steps, marginal_guide, cond_guide, optim, 
+                   num_samples, num_steps, marginal_guide, cond_guide, optim,
                    return_history=False, final_design=None, final_num_samples=None):
     """Estimate EIG by estimating the marginal entropy, that of :math:`p(y|d)`,
     *and* the conditional entropy, of :math:`p(y|\\theta, d)`, both via Gibbs' Inequality.
@@ -458,6 +537,23 @@ def logsumexp(inputs, dim=None, keepdim=False):
     if not keepdim:
         outputs = outputs.squeeze(dim)
     return outputs
+
+
+def xexpx(a):
+    """Computes `a*exp(a)`.
+    
+    This function makes the outputs more stable when the inputs of this function converge to -infinity
+
+    Args:
+        a: torch.Tensor
+
+    Returns:
+        Equivalent of `a*torch.exp(a)`.
+    """
+    mask = (a == float('-inf'))
+    y = a*torch.exp(a)
+    y[mask] = 0.
+    return y
 
 
 class EwmaLog(torch.autograd.Function):
