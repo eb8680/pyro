@@ -76,7 +76,7 @@ def vi_ape(model, design, observation_labels, target_labels,
 
 
 def naive_rainforth_eig(model, design, observation_labels, target_labels=None,
-                        N=100, M=10, M_prime=None):
+                        N=100, M=10, M_prime=None, independent_priors=False):
     """
     Naive Rainforth (i.e. Nested Monte Carlo) estimate of the expected information
     gain (EIG). The estimate is, when there are not any random effects,
@@ -127,10 +127,16 @@ def naive_rainforth_eig(model, design, observation_labels, target_labels=None,
         theta_dict = {l: lexpand(trace.nodes[l]["value"], M_prime) for l in target_labels}
         theta_dict.update(y_dict)
         # Resample M values of u and compute conditional probabilities
+        # WARNING: currently the use of condition does not actually sample
+        # the conditional distribution!
+        # We need to use some importance weighting
         conditional_model = pyro.condition(model, data=theta_dict)
-        # Not acceptable to use (M_prime, 1) here - other variables may occur after
-        # theta, so need to be sampled conditional upon it
-        reexpanded_design = lexpand(design, M_prime, N)
+        if independent_priors:
+            reexpanded_design = lexpand(design, M_prime, 1)
+        else:
+            # Not acceptable to use (M_prime, 1) here - other variables may occur after
+            # theta, so need to be sampled conditional upon it
+            reexpanded_design = lexpand(design, M_prime, N)
         retrace = poutine.trace(conditional_model).get_trace(reexpanded_design)
         retrace.compute_log_prob()
         conditional_lp = logsumexp(sum(retrace.nodes[l]["log_prob"] for l in observation_labels), 0) \
@@ -151,7 +157,10 @@ def naive_rainforth_eig(model, design, observation_labels, target_labels=None,
     marginal_lp = logsumexp(sum(retrace.nodes[l]["log_prob"] for l in observation_labels), 0) \
         - np.log(M)
 
-    return (conditional_lp - marginal_lp).sum(0)/N
+    terms = conditional_lp - marginal_lp
+    nonnan = (~torch.isnan(terms)).sum(0).float()
+    terms[torch.isnan(terms)] = 0.
+    return terms.sum(0)/nonnan
 
 
 def accelerated_rainforth_eig(model, design, observation_labels, target_labels,
@@ -276,7 +285,7 @@ def donsker_varadhan_eig(model, design, observation_labels, target_labels,
 
 def barber_agakov_ape(model, design, observation_labels, target_labels,
                       num_samples, num_steps, guide, optim, return_history=False,
-                      final_design=None, final_num_samples=None):
+                      final_design=None, final_num_samples=None, *args, **kwargs):
     """
     Barber-Agakov estimate of average posterior entropy (APE).
 
@@ -316,7 +325,7 @@ def barber_agakov_ape(model, design, observation_labels, target_labels,
         observation_labels = [observation_labels]
     if isinstance(target_labels, str):
         target_labels = [target_labels]
-    loss = barber_agakov_loss(model, guide, observation_labels, target_labels)
+    loss = barber_agakov_loss(model, guide, observation_labels, target_labels, *args, **kwargs)
     return opt_eig_ape_loss(design, loss, num_samples, num_steps, optim, return_history,
                             final_design, final_num_samples)
 
@@ -424,9 +433,9 @@ def donsker_varadhan_loss(model, T, observation_labels, target_labels):
     return loss_fn
 
 
-def barber_agakov_loss(model, guide, observation_labels, target_labels):
+def barber_agakov_loss(model, guide, observation_labels, target_labels, analytic_entropy=False):
 
-    def loss_fn(design, num_particles, **kwargs):
+    def loss_fn(design, num_particles, evaluation=False, **kwargs):
 
         expanded_design = lexpand(design, num_particles)
 
@@ -440,8 +449,13 @@ def barber_agakov_loss(model, guide, observation_labels, target_labels):
         cond_trace = poutine.trace(conditional_guide).get_trace(
             y_dict, expanded_design, observation_labels, target_labels)
         cond_trace.compute_log_prob()
+        if evaluation and analytic_entropy:
+            loss = mean_field_guide_entropy(guide,
+                    [y_dict, expanded_design, observation_labels, target_labels],
+                    whitelist=target_labels).sum(0)/num_particles
 
-        loss = -sum(cond_trace.nodes[l]["log_prob"] for l in target_labels).sum(0)/num_particles
+        else:
+            loss = -sum(cond_trace.nodes[l]["log_prob"] for l in target_labels).sum(0)/num_particles
         agg_loss = loss.sum()
         return agg_loss, loss
 
@@ -502,7 +516,7 @@ def gibbs_y_re_loss(model, marginal_guide, cond_guide, observation_labels, targe
 
         loss = -sum(marginal_trace.nodes[l]["log_prob"] for l in observation_labels).sum(0)/num_particles
 
-        # At evaluation time, use the right estimator, q(y | theta, d) - y(y | d)
+        # At evaluation time, use the right estimator, q(y | theta, d) - q(y | d)
         # At training time, use -q(y | theta, d) - q(y | d) so gradients go the same way
         if evaluation:
             loss += sum(cond_trace.nodes[l]["log_prob"] for l in observation_labels).sum(0)/num_particles
@@ -533,7 +547,10 @@ def logsumexp(inputs, dim=None, keepdim=False):
         inputs = inputs.view(-1)
         dim = 0
     s, _ = torch.max(inputs, dim=dim, keepdim=True)
-    outputs = s + (inputs - s).exp().sum(dim=dim, keepdim=True).log()
+    j = (inputs - s).exp()
+    # Fix so that exp(-inf) = 0. rather than nan.
+    j[(inputs - s) == float('-inf')] = 0.
+    outputs = s + j.sum(dim=dim, keepdim=True).log()
     if not keepdim:
         outputs = outputs.squeeze(dim)
     return outputs

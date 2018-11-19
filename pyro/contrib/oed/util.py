@@ -9,20 +9,34 @@ from pyro.contrib.glmm import analytic_posterior_cov
 from pyro.contrib.oed.eig import barber_agakov_ape, vi_ape
 
 
+def normal_inverse_gamma_ground_truth(model, design, observation_labels, target_labels, eig=True):
+    lm = linear_model_ground_truth(model, design, observation_labels, target_labels, eig=eig)
+
+    sign = 2.*(eig - .5)
+    p = design.shape[-2]
+    nu = model.alpha*2
+    correction_factor = -(p/2.)*(np.log(2) + 1.) - torch.lgamma((nu+p)/2) + torch.lgamma(nu/2) + (p/2.)*torch.log(nu) \
+                        + ((nu+p)/2.)*(torch.digamma((nu+p)/2) \
+                        - torch.digamma(nu/2))
+    variance_factor = (p/2.)*(-torch.log(model.alpha) + torch.digamma(model.alpha))
+    return lm + sign*(correction_factor + variance_factor)
+
+
 def linear_model_ground_truth(model, design, observation_labels, target_labels, eig=True):
     if isinstance(target_labels, str):
         target_labels = [target_labels]
 
     w_sd = torch.cat(list(model.w_sds.values()), dim=-1)
     prior_cov = torch.diag(w_sd**2)
-    posterior_covs = [analytic_posterior_cov(prior_cov, x, model.obs_sd) for x in torch.unbind(design)]
+    design_shape = design.shape
+    posterior_covs = [analytic_posterior_cov(prior_cov, x, model.obs_sd) for x in torch.unbind(design.contiguous().view(-1, design_shape[-2], design_shape[-1]))]
     target_indices = get_indices(target_labels, tensors=model.w_sds)
     target_posterior_covs = [S[target_indices, :][:, target_indices] for S in posterior_covs]
     if eig:
         prior_entropy = lm_H_prior(model, design, observation_labels, target_labels)
-        return prior_entropy - torch.tensor([0.5*torch.logdet(2*np.pi*np.e*C) for C in target_posterior_covs])
+        return prior_entropy - torch.tensor([0.5*torch.logdet(2*np.pi*np.e*C) for C in target_posterior_covs]).view(design_shape[:-2])
     else:
-        return torch.tensor([0.5*torch.logdet(2*np.pi*np.e*C) for C in target_posterior_covs])
+        return torch.tensor([0.5*torch.logdet(2*np.pi*np.e*C) for C in target_posterior_covs]).view(design_shape[:-2])
 
 
 def lm_H_prior(model, design, observation_labels, target_labels):

@@ -7,6 +7,7 @@ import torch
 from torch.nn.functional import softplus
 from torch.distributions import constraints
 from torch.distributions.transforms import AffineTransform, SigmoidTransform
+from torch.distributions.utils import _broadcast_shape
 
 import pyro
 import pyro.distributions as dist
@@ -67,14 +68,28 @@ def zero_mean_unit_obs_sd_lm(coef_sd, coef_label="w"):
     return model, guide
 
 
-def normal_inverse_gamma_linear_model(coef_mean, coef_sqrtlambda, alpha,
-                                      beta, coef_label="w",
-                                      observation_label="y"):
-    return partial(bayesian_linear_model,
-                   w_means={coef_label: coef_mean},
-                   w_sqrtlambdas={coef_label: coef_sqrtlambda},
-                   alpha_0=alpha, beta_0=beta,
-                   response_label=observation_label)
+def normal_inverse_gamma_linear_model(coef_means, coef_sqrtlambdas, alpha,
+                                      beta, coef_labels="w", observation_label="y"):
+
+    if not isinstance(coef_means, list):
+        coef_means = [coef_means]
+    if not isinstance(coef_sqrtlambdas, list):
+        coef_sqrtlambdas = [coef_sqrtlambdas]
+    if not isinstance(coef_labels, list):
+        coef_labels = [coef_labels]
+
+    model = partial(bayesian_linear_model,
+                    w_means=OrderedDict([(label, mean) for label, mean in zip(coef_labels, coef_means)]),
+                    w_sqrtlambdas=OrderedDict([
+                        (label, sqrtlambda) for label, sqrtlambda in zip(coef_labels, coef_sqrtlambdas)]),
+                    alpha_0=alpha, beta_0=beta,
+                    response_label=observation_label)
+    # For computing the true EIG
+    model.obs_sd = torch.tensor(1.)
+    model.w_sds = OrderedDict([(label, 1./sqrtlambda) for label, sqrtlambda in zip(coef_labels, coef_sqrtlambdas)])
+    model.alpha = alpha
+    model.beta = beta
+    return model
 
 
 def normal_inverse_gamma_guide(coef_shape, coef_label="w", **kwargs):
@@ -138,7 +153,7 @@ def sigmoid_model_gamma(coef1_mean, coef1_sd, coef2_mean, coef2_sd, observation_
     return model
 
 
-def sigmoid_model_fixed(coef_means, coef_sds, observation_sd, slope, coef_labels="w", observation_label="y"):
+def sigmoid_model_fixed(coef_means, coef_sds, observation_sd, coef_labels="w", observation_label="y"):
 
     if not isinstance(coef_means, list):
         coef_means = [coef_means]
@@ -156,7 +171,7 @@ def sigmoid_model_fixed(coef_means, coef_sds, observation_sd, slope, coef_labels
             obs_sd=observation_sd,
             response="sigmoid",
             response_label=observation_label,
-            k=slope
+            k=torch.tensor(1.)
             )
     model.w_sds = OrderedDict([(label, sd) for label, sd in zip(coef_labels, coef_sds)])
     model.obs_sd = observation_sd
@@ -263,7 +278,7 @@ def bayesian_linear_model(design, w_means={}, w_sqrtlambdas={}, re_group_sizes={
             u_prior = dist.Normal(torch.tensor(0.), G.repeat(repeat_shape)).independent(1)
             w.append(pyro.sample(name, u_prior))
         # Regression coefficient `w` is batch x p
-        w = torch.cat(w, dim=-1)
+        w = broadcast_cat(w)
 
         # Run the regressor forward conditioned on inputs
         prediction_mean = rmv(design, w)
@@ -399,3 +414,11 @@ def iter_iaranges_to_shape(shape):
     # Go backwards (right to left)
     for i, s in enumerate(shape[::-1]):
         yield pyro.iarange("iarange_" + str(i), s)
+
+
+def broadcast_cat(ws):
+    shapes = [w.shape[:-1] for w in ws]
+    target = _broadcast_shape(shapes)
+    expanded = [w.expand(target + (w.shape[-1],)) for w in ws]
+    return torch.cat(expanded, dim=-1)
+

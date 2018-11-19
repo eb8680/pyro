@@ -7,7 +7,7 @@ from torch.distributions.transforms import AffineTransform, SigmoidTransform
 import pyro
 import pyro.distributions as dist
 from pyro import poutine
-from pyro.contrib.util import get_indices, tensor_to_dict, rmv, rvv, rtril
+from pyro.contrib.util import get_indices, tensor_to_dict, rmv, rvv, rtril, rdiag
 from pyro.ops.linalg import rinverse
 
 
@@ -29,10 +29,10 @@ class LinearModelGuide(nn.Module):
         # Making a weak mean-field assumption
         # To avoid this- combine labels
         self.tikhonov_diag = nn.Parameter(
-                tikhonov_init*torch.ones(sum(w_sizes.values())))
-        self.scaled_prior_mean = nn.Parameter(torch.zeros(sum(w_sizes.values())))
+                tikhonov_init*torch.ones(*d, sum(w_sizes.values())))
+        self.scaled_prior_mean = nn.Parameter(torch.zeros(*d, sum(w_sizes.values())))
         self.scale_tril = {l: nn.Parameter(
-                scale_tril_init*torch.ones(d, p, p)) for l, p in w_sizes.items()}
+                scale_tril_init*torch.ones(*d, p, p)) for l, p in w_sizes.items()}
         # This registers the dict values in pytorch
         # Await new version to use nn.ParamterDict
         self._registered = nn.ParameterList(self.scale_tril.values())
@@ -46,7 +46,7 @@ class LinearModelGuide(nn.Module):
 
     def linear_model_formula(self, y, design, target_labels):
 
-        tikhonov_diag = torch.diag(self.softplus(self.tikhonov_diag))
+        tikhonov_diag = rdiag(self.softplus(self.tikhonov_diag))
         xtx = torch.matmul(design.transpose(-1, -2), design) + tikhonov_diag
         xtxi = rinverse(xtx, sym=True)
         mu = rmv(xtxi, rmv(design.transpose(-1, -2), y) + self.scaled_prior_mean)
@@ -71,25 +71,23 @@ class LinearModelGuide(nn.Module):
 
 class SigmoidGuide(LinearModelGuide):
 
-    def __init__(self, d, w_sizes, slope, scale_tril_init=3., mu_init=0., **kwargs):
+    def __init__(self, d, w_sizes, scale_tril_init=3., mu_init=0., **kwargs):
         super(SigmoidGuide, self).__init__(d, w_sizes, scale_tril_init=scale_tril_init,
                                            **kwargs)
-        self.inverse_sigmoid_scale = 1./slope
-
         self.mu0 = {l: nn.Parameter(
-                mu_init*torch.ones(d, p)) for l, p in w_sizes.items()}
+                mu_init*torch.ones(*d, p)) for l, p in w_sizes.items()}
         self._registered_mu0 = nn.ParameterList(self.mu0.values())
 
         self.mu1 = {l: nn.Parameter(
-                mu_init*torch.ones(d, p)) for l, p in w_sizes.items()}
+                mu_init*torch.ones(*d, p)) for l, p in w_sizes.items()}
         self._registered_mu1 = nn.ParameterList(self.mu1.values())
 
         self.scale_tril0 = {l: nn.Parameter(
-                scale_tril_init*torch.ones(d, p, p)) for l, p in w_sizes.items()}
+                scale_tril_init*torch.ones(*d, p, p)) for l, p in w_sizes.items()}
         self._registered0 = nn.ParameterList(self.scale_tril0.values())
 
         self.scale_tril1 = {l: nn.Parameter(
-                scale_tril_init*torch.ones(d, p, p)) for l, p in w_sizes.items()}
+                scale_tril_init*torch.ones(*d, p, p)) for l, p in w_sizes.items()}
         self._registered1 = nn.ParameterList(self.scale_tril1.values())
 
 
@@ -101,7 +99,7 @@ class SigmoidGuide(LinearModelGuide):
         mask1 = (1.-y < 1e-35).squeeze(-1)
         y, y1m = y.clamp(1e-35, 1), (1.-y).clamp(1e-35, 1)
         logited = y.log() - y1m.log()
-        y_trans = logited * self.inverse_sigmoid_scale
+        y_trans = logited
 
         mu, scale_tril = self.linear_model_formula(y_trans, design, target_labels)
         scale_tril = {l: scale_tril[l].expand(mu[l].shape + (mu[l].shape[-1], )) for l in scale_tril}
@@ -122,19 +120,19 @@ class LogisticGuide(LinearModelGuide):
         super(LogisticGuide, self).__init__(d, w_sizes, scale_tril_init=scale_tril_init,
                                            **kwargs)
         self.mu0 = {l: nn.Parameter(
-                mu_init*torch.ones(d, p)) for l, p in w_sizes.items()}
+                mu_init*torch.ones(*d, p)) for l, p in w_sizes.items()}
         self._registered_mu0 = nn.ParameterList(self.mu0.values())
 
         self.mu1 = {l: nn.Parameter(
-                mu_init*torch.ones(d, p)) for l, p in w_sizes.items()}
+                mu_init*torch.ones(*d, p)) for l, p in w_sizes.items()}
         self._registered_mu1 = nn.ParameterList(self.mu1.values())
 
         self.scale_tril0 = {l: nn.Parameter(
-                scale_tril_init*torch.ones(d, p, p)) for l, p in w_sizes.items()}
+                scale_tril_init*torch.ones(*d, p, p)) for l, p in w_sizes.items()}
         self._registered0 = nn.ParameterList(self.scale_tril0.values())
 
         self.scale_tril1 = {l: nn.Parameter(
-                scale_tril_init*torch.ones(d, p, p)) for l, p in w_sizes.items()}
+                scale_tril_init*torch.ones(*d, p, p)) for l, p in w_sizes.items()}
         self._registered1 = nn.ParameterList(self.scale_tril1.values())
 
 
@@ -163,8 +161,8 @@ class SigmoidResponseEst(nn.Module):
 
         super(SigmoidResponseEst, self).__init__()
 
-        self.mu = {l: nn.Parameter(mu_init*torch.ones(d, 1)) for l in observation_labels}
-        self.sigma = {l: nn.Parameter(sigma_init*torch.ones(d, 1)) for l in observation_labels}
+        self.mu = {l: nn.Parameter(mu_init*torch.ones(*d, 1)) for l in observation_labels}
+        self.sigma = {l: nn.Parameter(sigma_init*torch.ones(*d, 1)) for l in observation_labels}
         self._registered_mu = nn.ParameterList(self.mu.values())
         self._registered_sigma = nn.ParameterList(self.sigma.values())
         # TODO read from torch float specs
@@ -187,11 +185,50 @@ class SigmoidResponseEst(nn.Module):
             pyro.sample(label, response_dist)
 
 
-class SigmoidCondResponseEst(SigmoidResponseEst):
+class NormalResponseEst(nn.Module):
+
+    def __init__(self, d, observation_dimensions, mu_init=0., sigma_init=3., **kwargs):
+
+        super(NormalResponseEst, self).__init__()
+
+        self.mu = {l: nn.Parameter(mu_init*torch.ones(*d, p)) for l, p in observation_dimensions.items()}
+        self.scale_tril = {l: nn.Parameter(sigma_init*torch.ones(*d, p, p)) for l, p in observation_dimensions.items()}
+        self._registered_mu = nn.ParameterList(self.mu.values())
+        self._registered_scale_tril = nn.ParameterList(self.scale_tril.values())
+
+    def forward(self, design, observation_labels, target_labels):
+
+        pyro.module("gibbs_y_guide", self)
+
+        for l in observation_labels:
+            pyro.sample(l, dist.MultivariateNormal(self.mu[l], scale_tril=rtril(self.scale_tril[l])))
+
+
+class NormalLikelihoodEst(NormalResponseEst):
+
+    def __init__(self, d, w_sizes, observation_dimensions, mu_init=0., sigma_init=3., **kwargs):
+
+        super(NormalLikelihoodEst, self).__init__(d, observation_dimensions, mu_init, sigma_init, **kwargs)
+        self.w_sizes = w_sizes
+
+    def forward(self, theta_dict, design, observation_labels, target_labels):
+
+        theta = torch.cat(list(theta_dict.values()), dim=-1)
+        indices = get_indices(target_labels, self.w_sizes)
+        subdesign = design[..., indices]
+        centre = rmv(subdesign, theta)
+
+        pyro.module("gibbs_y_re_guide", self)
+
+        for l in observation_labels:
+            pyro.sample(l, dist.MultivariateNormal(centre + self.mu[l], scale_tril=rtril(self.scale_tril[l])))
+
+
+class SigmoidLikelihoodEst(SigmoidResponseEst):
 
     def __init__(self, d, w_sizes, observation_labels, mu_init=0., sigma_init=20., **kwargs):
 
-        super(SigmoidCondResponseEst, self).__init__(d, observation_labels, mu_init, sigma_init, **kwargs)
+        super(SigmoidLikelihoodEst, self).__init__(d, observation_labels, mu_init, sigma_init, **kwargs)
         self.w_sizes = w_sizes
 
     def forward(self, theta_dict, design, observation_labels, target_labels):
@@ -213,7 +250,7 @@ class LogisticResponseEst(nn.Module):
 
         super(LogisticResponseEst, self).__init__()
 
-        self.logits = {l: nn.Parameter(p_logit_init*torch.ones(d, 1)) for l in observation_labels}
+        self.logits = {l: nn.Parameter(p_logit_init*torch.ones(*d, 1)) for l in observation_labels}
         self._registered = nn.ParameterList(self.logits.values())
 
     
@@ -226,14 +263,14 @@ class LogisticResponseEst(nn.Module):
             pyro.sample(l, y_dist)
 
 
-class LogisticCondResponseEst(nn.Module):
+class LogisticLikelihoodEst(nn.Module):
     
     def __init__(self, d, w_sizes, observation_labels, p_logit_init=0., **kwargs):
 
-        super(LogisticCondResponseEst, self).__init__()
+        super(LogisticLikelihoodEst, self).__init__()
 
-        self.logit_correction = {l: nn.Parameter(p_logit_init*torch.ones(d, 1)) for l in observation_labels}
-        self.logit_offset = {l: nn.Parameter(torch.zeros(d, 1)) for l in observation_labels}
+        self.logit_correction = {l: nn.Parameter(p_logit_init*torch.ones(*d, 1)) for l in observation_labels}
+        self.logit_offset = {l: nn.Parameter(torch.zeros(*d, 1)) for l in observation_labels}
         self._registered_correction = nn.ParameterList(self.logit_correction.values())
         self._registered_offset = nn.ParameterList(self.logit_offset.values())
         self.w_sizes = w_sizes
@@ -258,11 +295,11 @@ class LogisticCondResponseEst(nn.Module):
 
 class NormalInverseGammaGuide(LinearModelGuide):
 
-    def __init__(self, d, w_sizes, mf=False, tau_label="tau", alpha_init=100.,
-                 b0_init=100., **kwargs):
+    def __init__(self, d, w_sizes, mf=False, tau_label="tau", alpha_init=10.,
+                 b0_init=10., **kwargs):
         super(NormalInverseGammaGuide, self).__init__(d, w_sizes, **kwargs)
-        self.alpha = nn.Parameter(alpha_init*torch.ones(d))
-        self.b0 = nn.Parameter(b0_init*torch.ones(d))
+        self.alpha = nn.Parameter(alpha_init*torch.ones(*d))
+        self.b0 = nn.Parameter(b0_init*torch.ones(*d))
         self.mf = mf
         self.tau_label = tau_label
 
