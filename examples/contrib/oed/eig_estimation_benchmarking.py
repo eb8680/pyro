@@ -147,6 +147,8 @@ sigmoid_random_effect_guide = lambda d: SigmoidGuide(d, {"coef": 1, "loc": 1})
 
 elbo = TraceEnum_ELBO(strict_enumeration_warning=False).differentiable_loss
 
+NREPS = 2
+
 def zerofn(*args, **kwargs):
     return torch.tensor(0.)
 
@@ -189,10 +191,10 @@ TRUTH_TEST_CASES = [
         [
             (naive_rainforth_eig, [110*110, 110]),
             (ba_eig_mc,
-             [10, 800, nig_2p_ba_mf_guide((10, 11)), optim.Adam({"lr": 0.05}),
+             [10, 800, nig_2p_ba_mf_guide((NREPS, 11)), optim.Adam({"lr": 0.05}),
               False, None, 500]),
             (gibbs_y_eig,
-             [10, 1200, normal_response_est((10, 11)),
+             [10, 1200, normal_response_est((NREPS, 11)),
               optim.Adam({"lr": 0.05}), False, None, 500]),
             # For validating the ground truth-
             # (ba_eig_mc,
@@ -213,10 +215,10 @@ TRUTH_TEST_CASES = [
             # Use LFIRE instead
             (naive_rainforth_eig, [70*70, 70]),
             (ba_eig_mc,
-             [10, 800, basic_2p_ba_guide((10, 11)), optim.Adam({"lr": 0.05}),
+             [10, 800, basic_2p_ba_guide((NREPS, 11)), optim.Adam({"lr": 0.05}),
               False, None, 500]),
             (gibbs_y_re_eig,
-             [10, 1200, normal_response_est((10, 11)), normal_likelihood_est2((10, 11)),
+             [10, 1200, normal_response_est((NREPS, 11)), normal_likelihood_est2((10, 11)),
               optim.Adam({"lr": 0.05}), False, None, 500]),
             (linear_model_ground_truth, [])
         ]
@@ -524,7 +526,7 @@ def test_eig_ground_truth(title, model, design, observation_label, target_label,
     markers = ['x', '+', 'o', 'D', 'v', '^']
     print(title)
     for n, (estimator, args) in enumerate(arglist):
-        y, elapsed = time_eig(estimator, model, lexpand(design, 10) if n<(len(arglist)-1) else lexpand(design,1), observation_label, target_label, args)
+        y, elapsed = time_eig(estimator, model, lexpand(design, NREPS) if n<(len(arglist)-1) else lexpand(design,1), observation_label, target_label, args)
         y = y.detach().numpy()
         y[np.isinf(y)] = np.nan
         ys.append(y)
@@ -573,7 +575,7 @@ def test_eig_and_plot(title, model, design, observation_label, target_label, arg
     markers = ['x', '+', 'o', 'D', 'v', '^']
     print(title)
     for n, (estimator, args) in enumerate(arglist):
-        y, elapsed = time_eig(estimator, model, lexpand(design, 10), observation_label, target_label, args)
+        y, elapsed = time_eig(estimator, model, lexpand(design, NREPS), observation_label, target_label, args)
         y = y.detach().numpy()
         y[np.isinf(y)] = np.nan
         ys.append(y)
