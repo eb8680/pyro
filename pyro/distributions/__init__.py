@@ -25,6 +25,7 @@ from pyro.distributions.von_mises import VonMises
 from pyro.distributions.von_mises_3d import VonMises3D
 from pyro.distributions.zero_inflated_poisson import ZeroInflatedPoisson
 from pyro.distributions.censored import CensoredDistribution
+from pyro.distributions.censored_sigmoid_normal import CensoredSigmoidNormal
 
 __all__ = [
     "enable_validation",

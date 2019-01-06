@@ -2,13 +2,13 @@ from __future__ import absolute_import, division, print_function
 
 import torch
 from torch import nn
-from torch.distributions.transforms import AffineTransform, SigmoidTransform
 
 import pyro
 import pyro.distributions as dist
 from pyro import poutine
 from pyro.contrib.util import get_indices, tensor_to_dict, rmv, rvv, rtril, rdiag
 from pyro.ops.linalg import rinverse
+from pyro.util import is_bad
 
 
 class LinearModelGuide(nn.Module):
@@ -174,14 +174,17 @@ class SigmoidResponseEst(nn.Module):
         pyro.module("gibbs_y_guide", self)
 
         for l in observation_labels:
+            if is_bad(self.mu[l]):
+                raise ArithmeticError("NaN in marginal mean")
+            elif is_bad(self.sigma[l]):
+                raise ArithmeticError("NaN in marginal sigma")
             self.sample_sigmoid(l, self.mu[l], self.sigma[l])
 
     def sample_sigmoid(self, label, mu, sigma):
 
-            base_dist = dist.Normal(mu, self.softplus(sigma))
-            tr_dist = dist.TransformedDistribution(base_dist, [SigmoidTransform()])
-            response_dist = dist.CensoredDistribution(
-                    tr_dist, upper_lim=1.-self.epsilon, lower_lim=self.epsilon).independent(1)
+            response_dist = dist.CensoredSigmoidNormal(
+                loc=mu, scale=self.softplus(sigma), upper_lim=1.-self.epsilon, lower_lim=self.epsilon
+            ).independent(1)
             pyro.sample(label, response_dist)
 
 
@@ -226,9 +229,10 @@ class NormalLikelihoodEst(NormalResponseEst):
 
 class SigmoidLikelihoodEst(SigmoidResponseEst):
 
-    def __init__(self, d, w_sizes, observation_labels, mu_init=0., sigma_init=20., **kwargs):
+    def __init__(self, d, w_sizes, observation_labels, mu_init=0., sigma_init=10., **kwargs):
 
         super(SigmoidLikelihoodEst, self).__init__(d, observation_labels, mu_init, sigma_init, **kwargs)
+        self.log_multiplier = nn.Parameter(torch.zeros(*d, 1))
         self.w_sizes = w_sizes
 
     def forward(self, theta_dict, design, observation_labels, target_labels):
@@ -237,11 +241,16 @@ class SigmoidLikelihoodEst(SigmoidResponseEst):
         indices = get_indices(target_labels, self.w_sizes)
         subdesign = design[..., indices]
         centre = rmv(subdesign, theta)
-        
+        scaled_centre = torch.exp(self.log_multiplier)*centre
+
         pyro.module("gibbs_y_re_guide", self)
 
         for l in observation_labels:
-            self.sample_sigmoid(l, centre + self.mu[l], self.sigma[l])
+            if is_bad(self.mu[l]):
+                raise ArithmeticError("NaN in likelihood mean")
+            elif is_bad(self.sigma[l]):
+                raise ArithmeticError("NaN in likelihood sigma")
+            self.sample_sigmoid(l, scaled_centre + self.mu[l], self.sigma[l])
 
 
 class LogisticResponseEst(nn.Module):

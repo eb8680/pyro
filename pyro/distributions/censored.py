@@ -33,7 +33,6 @@ class CensoredDistribution(TorchDistribution):
         x[x > self.upper_lim] = self.upper_lim
         x[x < self.lower_lim] = self.lower_lim
 
-
     def log_prob(self, value):
         """
         Scores the sample by giving a probability density relative to a new base measure.
@@ -68,4 +67,3 @@ class CensoredDistribution(TorchDistribution):
     def icdf(self, value):
         # Is this even possible?
         raise NotImplemented
-

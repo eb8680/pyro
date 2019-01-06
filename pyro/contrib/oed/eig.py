@@ -365,6 +365,17 @@ def gibbs_y_re_eig(model, design, observation_labels, target_labels,
                             final_design, final_num_samples)
 
 
+def elbo_learn(model, design, observation_labels, target_labels,
+               num_samples, num_steps, guide, data, optim):
+
+    if isinstance(observation_labels, str):
+        observation_labels = [observation_labels]
+    if isinstance(target_labels, str):
+        target_labels = [target_labels]
+    loss = elbo(model, guide, data, observation_labels, target_labels)
+    return opt_eig_ape_loss(design, loss, num_samples, num_steps, optim)
+
+
 def opt_eig_ape_loss(design, loss_fn, num_samples, num_steps, optim, return_history=False,
                      final_design=None, final_num_samples=None):
 
@@ -378,13 +389,17 @@ def opt_eig_ape_loss(design, loss_fn, num_samples, num_steps, optim, return_hist
     for step in range(num_steps):
         if params is not None:
             pyro.infer.util.zero_grads(params)
-        agg_loss, loss = loss_fn(design, num_samples)
+        with poutine.trace(param_only=True) as param_capture:
+            agg_loss, loss = loss_fn(design, num_samples)
+        params = set(site["value"].unconstrained()
+                     for site in param_capture.trace.nodes.values())
+        if torch.isnan(agg_loss):
+            raise ArithmeticError("Encountered NaN loss in opt_eig_ape_loss")
         agg_loss.backward()
         if return_history:
             history.append(loss)
-        params = [pyro.param(name).unconstrained()
-                  for name in pyro.get_param_store().get_all_param_names()]
         optim(params)
+
     _, loss = loss_fn(final_design, final_num_samples, evaluation=True)
     if return_history:
         return torch.stack(history), loss
@@ -478,13 +493,17 @@ def gibbs_y_loss(model, guide, observation_labels, target_labels):
              expanded_design, observation_labels, target_labels)
         cond_trace.compute_log_prob()
 
-        loss = -sum(cond_trace.nodes[l]["log_prob"] for l in observation_labels).sum(0)/num_particles
+        terms = -sum(cond_trace.nodes[l]["log_prob"] for l in observation_labels)
 
         # At eval time, add p(y | theta, d) terms
         if evaluation:
             trace.compute_log_prob()
-            loss += sum(trace.nodes[l]["log_prob"] for l in observation_labels).sum(0)/num_particles
+            terms += sum(trace.nodes[l]["log_prob"] for l in observation_labels)
 
+        mask = torch.isnan(terms) | (terms == float('-inf')) | (terms == float('inf'))
+        nonnan = (~mask).sum(0).float()
+        terms[mask] = 0.
+        loss = terms.sum(0)/nonnan
         agg_loss = loss.sum()
         return agg_loss, loss
 
@@ -513,16 +532,52 @@ def gibbs_y_re_loss(model, marginal_guide, cond_guide, observation_labels, targe
         cond_trace = poutine.trace(qythetad).get_trace(
                 theta_dict, expanded_design, observation_labels, target_labels)
         cond_trace.compute_log_prob()
-
-        loss = -sum(marginal_trace.nodes[l]["log_prob"] for l in observation_labels).sum(0)/num_particles
+        terms = -sum(marginal_trace.nodes[l]["log_prob"] for l in observation_labels)
 
         # At evaluation time, use the right estimator, q(y | theta, d) - q(y | d)
         # At training time, use -q(y | theta, d) - q(y | d) so gradients go the same way
         if evaluation:
-            loss += sum(cond_trace.nodes[l]["log_prob"] for l in observation_labels).sum(0)/num_particles
+            terms += sum(cond_trace.nodes[l]["log_prob"] for l in observation_labels)
         else:
-            loss -= sum(cond_trace.nodes[l]["log_prob"] for l in observation_labels).sum(0)/num_particles
+            terms -= sum(cond_trace.nodes[l]["log_prob"] for l in observation_labels)
 
+        mask = torch.isnan(terms) | (terms == float('-inf')) | (terms == float('inf'))
+        nonnan = (~mask).sum(0).float()
+        terms[mask] = 0.
+        loss = terms.sum(0)/nonnan
+        agg_loss = loss.sum()
+        return agg_loss, loss
+
+    return loss_fn
+
+
+def elbo(model, guide, data, observation_labels, target_labels):
+
+    def loss_fn(design, num_particles, **kwargs):
+
+        y_dict = {l: lexpand(y, num_particles) for l, y in data.items()}
+
+        expanded_design = lexpand(design, num_particles)
+
+        # Sample from q(theta)
+        trace = poutine.trace(guide).get_trace(expanded_design)
+        theta_dict = {l: trace.nodes[l]["value"] for l in target_labels}
+        theta_dict.update(y_dict)
+        trace.compute_log_prob()
+
+        # Run through p(theta)
+        modelp = pyro.condition(model, data=theta_dict)
+        model_trace = poutine.trace(modelp).get_trace(expanded_design)
+        model_trace.compute_log_prob()
+
+        terms = sum(trace.nodes[l]["log_prob"] for l in target_labels)
+        terms -= sum(model_trace.nodes[l]["log_prob"] for l in target_labels)
+        terms -= sum(model_trace.nodes[l]["log_prob"] for l in observation_labels)
+
+        mask = torch.isnan(terms) | (terms == float('-inf')) | (terms == float('inf'))
+        nonnan = (~mask).sum(0).float()
+        terms[mask] = 0.
+        loss = terms.sum(0)/nonnan
         agg_loss = loss.sum()
         return agg_loss, loss
 
@@ -534,8 +589,6 @@ def logsumexp(inputs, dim=None, keepdim=False):
 
     Args:
         inputs: A Variable with any shape.
-        dim: An integer.
-        keepdim: A boolean.
 
     Returns:
         Equivalent of `log(sum(exp(inputs), dim=dim, keepdim=keepdim))`.
@@ -595,7 +648,7 @@ class EwmaLog(torch.autograd.Function):
         self.n = 0
         self.s = 0.
 
-    def forward(self, inputs, s, dim=0, keepdim=False):
+    def forward(self, inputs, s):
         """Updates the moving average, and returns :code:`inputs.log()`.
         """
         self.n += 1
@@ -613,4 +666,4 @@ class EwmaLog(torch.autograd.Function):
         """Returns the gradient from exponentially weighted moving
         average of historical input values.
         """
-        return grad_output/self.ewma, None, None, None
+        return grad_output/self.ewma, None
