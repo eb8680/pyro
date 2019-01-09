@@ -196,29 +196,104 @@ CASES = [
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (truth_nigam, {}),
         ],
-        ["nigam", "ground_truth", "nore"]
+        ["nigam", "ground_truth", "no_re", "ab_test"]
     ),
+    Case(
+        "Normal inverse gamma model, information on w only",
+        (normal_inverse_gamma_linear_model, {"coef_means": torch.tensor(0.),
+                                             "coef_sqrtlambdas": torch.tensor([.1, 10.]),
+                                             "alpha": torch.tensor(3.),
+                                             "beta": torch.tensor(2.)}),
+        AB_test_11d_10n_2p,
+        "y",
+        "w",
+        [
+            # Caution, Rainforth does not work correctly in this case because we must
+            # compute p(psi | theta)
+            # Use LFIRE instead
+            (posterior_mc,
+             {"num_samples": 10, "num_steps": 800, "final_num_samples": 500,
+              "guide": (NormalInverseGammaGuide, {"mf": True, "alpha_init": 10., "b0_init": 10.,
+                                                  "tikhonov_init": -2., "scale_tril_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (marginal_re,
+             {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
+              "marginal_guide": (NormalResponseEst, {"mu_init": 0., "sigma_init": 3.}),
+              "cond_guide": (NormalLikelihoodEst, {"mu_init": 0., "sigma_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (truth_lm, {}),
+        ],
+        ["nigam", "ground_truth", "re", "ab_test"]
+    ),
+    Case(
+        "Linear regression model",
+        (known_covariance_linear_model, {"coef_means": torch.tensor(0.),
+                                         "coef_sds": torch.tensor([.1, 10.]),
+                                         "observation_sd": torch.tensor(1.)}),
+        AB_test_11d_10n_2p,
+        "y",
+        "w",
+        [
+            (nmc, {"N": 60*60, "M": 60}),
+            (posterior_lm,
+             {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
+              "guide": (LinearModelGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            # TODO: broken
+            (posterior_lm,
+             {"num_samples": 10, "num_steps": 1200, "final_num_samples": 50, "analytic_entropy": True,
+              "guide": (LinearModelGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})},
+             "Posterior with analytic entropy"),
+            (marginal,
+             {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
+              "guide": (NormalResponseEst, {"mu_init": 0., "sigma_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (truth_lm, {})
+        ],
+        ["lm", "ground_truth", "no_re", "ab_test"]
+    ),
+    # T(
+    #     "Linear model with random effects",
+    #     normal_re,
+    #     AB_test_11d_10n_12p,
+    #     "y",
+    #     "ab",
+    #     [
+    #         (naive_rainforth_eig, [52*52, 52, 52, True]),
+    #         (ba_eig_mc,
+    #          [10, 150, re_guide((10, 11)), optim.Adam({"lr": 0.05}),
+    #           False, None, 500]),
+    #         (gibbs_y_re_eig,
+    #          [10, 600, normal_response_est((10, 11)), normal_likelihood_est((10, 11)),
+    #           optim.Adam({"lr": 0.05}), False, None, 500]),
+    #         (linear_model_ground_truth, []),
+    #     ]
+    # ),
+    # T(
+    #     "Linear regression model (large n)",
+    #     basic_2p_linear_model_sds_10_0pt1,
+    #     AB_test_11d_20n_2p,
+    #     "y",
+    #     "w",
+    #     [
+    #         (naive_rainforth_eig, [90*90, 90]),
+    #         (ba_eig_lm,
+    #          [10, 1000, basic_2p_ba_guide((10, 11)), optim.Adam({"lr": 0.05}),
+    #           False, None, 500]),
+    #         (gibbs_y_eig,
+    #          [10, 700, normal_response_est_20((10, 11)), optim.Adam({"lr": 0.05}),
+    #           False, None, 500]),
+    #         #(vi_eig_lm,
+    #         # [{"guide": basic_2p_guide, "optim": optim.Adam({"lr": 0.05}), "loss": elbo,
+    #         #   "num_steps": 1000}, {"num_samples": 1}]),
+    #         #(donsker_varadhan_eig,
+    #         # [400, 400, GuideDV(basic_2p_ba_guide((11,))),
+    #         #  optim.Adam({"lr": 0.05}), False, None, 500]),
+    #         (linear_model_ground_truth, []),
+    #     ]
+    # ),
 ]
-#     T(
-#         "Normal inverse gamma model, information on w only",
-#         nig_2p_linear_model_3_2,
-#         AB_test_11d_10n_2p,
-#         "y",
-#         "w",
-#         [
-#             # Caution, Rainforth does not work correctly in this case because we must
-#             # compute p(psi | theta)
-#             # Use LFIRE instead
-#             (naive_rainforth_eig, [70*70, 70]),
-#             (ba_eig_mc,
-#              [10, 800, basic_2p_ba_guide((NREPS, 11)), optim.Adam({"lr": 0.05}),
-#               False, None, 500]),
-#             (gibbs_y_re_eig,
-#              [10, 1200, normal_response_est((NREPS, 11)), normal_likelihood_est2((10, 11)),
-#               optim.Adam({"lr": 0.05}), False, None, 500]),
-#             (linear_model_ground_truth, [])
-#         ]
-#     ),
 #     T(
 #         "Sigmoid with random effects",
 #         sigmoid_re_model,
@@ -252,65 +327,6 @@ CASES = [
 #              [20, 4000, sigmoid_response_est((10, 15)), optim.Adam({"lr": 0.05}),
 #               False, None, 500]),
 #             (naive_rainforth_eig, [300*300, 300]),
-#         ]
-#     ),
-#     T(
-#         "Linear regression model",
-#         basic_2p_linear_model_sds_10_0pt1,
-#         AB_test_11d_10n_2p,
-#         "y",
-#         "w",
-#         [
-#             (ba_eig_lm,
-#              [10, 1200, basic_2p_ba_guide((10, 11)), optim.Adam({"lr": 0.05}),
-#               False, None, 500]),
-#             (ba_lm_use_ae,
-#              [10, 1200, basic_2p_ba_guide((10, 11)), optim.Adam({"lr": 0.05}),
-#               False, None, 50]),
-#             (donsker_varadhan_eig,
-#              [100, 100, GuideDV(basic_2p_ba_guide((10, 11))),
-#               optim.Adam({"lr": 0.05}), False, None, 500]),
-#             (linear_model_ground_truth, []),
-#         ]
-#     ),
-#     T(
-#         "Linear model with random effects",
-#         normal_re,
-#         AB_test_11d_10n_12p,
-#         "y",
-#         "ab",
-#         [
-#             (naive_rainforth_eig, [52*52, 52, 52, True]),
-#             (ba_eig_mc,
-#              [10, 150, re_guide((10, 11)), optim.Adam({"lr": 0.05}),
-#               False, None, 500]),
-#             (gibbs_y_re_eig,
-#              [10, 600, normal_response_est((10, 11)), normal_likelihood_est((10, 11)),
-#               optim.Adam({"lr": 0.05}), False, None, 500]),
-#             (linear_model_ground_truth, []),
-#         ]
-#     ),
-#     T(
-#         "Linear regression model (large n)",
-#         basic_2p_linear_model_sds_10_0pt1,
-#         AB_test_11d_20n_2p,
-#         "y",
-#         "w",
-#         [
-#             (naive_rainforth_eig, [90*90, 90]),
-#             (ba_eig_lm,
-#              [10, 1000, basic_2p_ba_guide((10, 11)), optim.Adam({"lr": 0.05}),
-#               False, None, 500]),
-#             (gibbs_y_eig,
-#              [10, 700, normal_response_est_20((10, 11)), optim.Adam({"lr": 0.05}),
-#               False, None, 500]),
-#             #(vi_eig_lm,
-#             # [{"guide": basic_2p_guide, "optim": optim.Adam({"lr": 0.05}), "loss": elbo,
-#             #   "num_steps": 1000}, {"num_samples": 1}]),
-#             #(donsker_varadhan_eig,
-#             # [400, 400, GuideDV(basic_2p_ba_guide((11,))),
-#             #  optim.Adam({"lr": 0.05}), False, None, 500]),
-#             (linear_model_ground_truth, []),
 #         ]
 #     ),
 # ]
@@ -563,16 +579,20 @@ def main(case_tags, estimator_tags, num_runs, num_parallel, experiment_name):
     if "*" in case_tags or "all" in case_tags:
         cases = CASES
     else:
-        cases = [c for c in CASES if all(tag in c.tags for tag in case_tags)]
+        cases = [c for c in CASES if any(tag in c.tags for tag in case_tags)]
     for case in cases:
         # Create the model in a way that allows us to pickle its params
         model_func, model_params = case.model
         model = model_func(**model_params)
-        for estimator, kwargs in case.estimator_argslist:
+        for estimator, kwargs, *others in case.estimator_argslist:
             # Filter estimators
-            if ("*" in estimator_tags) or ("all" in estimator_tags) or all(tag in estimator.tags for tag in estimator_tags):
+            if others:
+                estimator_name = others[0]
+            else:
+                estimator_name = estimator.name
+            if ("*" in estimator_tags) or ("all" in estimator_tags) or any(tag in estimator.tags for tag in estimator_tags):
                 for run in range(1, num_runs+1):
-                    print("Case", case.title, "| Estimator", estimator.name)
+                    print("Case", case.title, "| Estimator", estimator_name)
 
                     # Handles the parallelization
                     if "truth" not in estimator.tags:
@@ -590,7 +610,7 @@ def main(case_tags, estimator_tags, num_runs, num_parallel, experiment_name):
                         "model_name": model_func.__name__,
                         "design": case.design,
                         "num_parallel": num_parallel,
-                        "estimator_name": estimator.name,
+                        "estimator_name": estimator_name,
                         "estimator_params": {},
                     }
 
@@ -598,7 +618,7 @@ def main(case_tags, estimator_tags, num_runs, num_parallel, experiment_name):
                         if isinstance(value, tuple):
                             param_func, param_params = value
                             # Communicate some size attributes to the guide
-                            if key == "guide":
+                            if "guide" in key:
                                 param_params.update({"d": expanded_design.shape[:2],
                                                      "w_sizes": model.w_sizes,
                                                      "y_sizes": {model.observation_label: expanded_design.shape[-2]}})
@@ -623,7 +643,7 @@ def main(case_tags, estimator_tags, num_runs, num_parallel, experiment_name):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="EIG estimation benchmarking")
     parser.add_argument("--case-tags", nargs="?", default="*", type=str)
-    parser.add_argument("--estimator_tags", nargs="?", default="*", type=str)
+    parser.add_argument("--estimator-tags", nargs="?", default="*", type=str)
     parser.add_argument("--num-runs", nargs="?", default=1, type=int)
     parser.add_argument("--num-parallel", nargs="?", default=5, type=int)
     parser.add_argument("--name", nargs="?", default="", type=str)

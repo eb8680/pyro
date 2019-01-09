@@ -22,16 +22,28 @@ except ImportError:
 epsilon = torch.tensor(2**-24)
 
 
-def known_covariance_linear_model(coef_mean, coef_sd, observation_sd,
-                                  coef_label="w", observation_label="y"):
+def known_covariance_linear_model(coef_means, coef_sds, observation_sd,
+                                  coef_labels="w", observation_label="y"):
+
+    if not isinstance(coef_means, list):
+        coef_means = [coef_means]
+    if not isinstance(coef_sds, list):
+        coef_sds = [coef_sds]
+    if not isinstance(coef_labels, list):
+        coef_labels = [coef_labels]
+
     model = partial(bayesian_linear_model,
-                    w_means={coef_label: coef_mean},
-                    w_sqrtlambdas={coef_label: 1./(observation_sd*coef_sd)},
+                    w_means=OrderedDict([(label, mean) for label, mean in zip(coef_labels, coef_means)]),
+                    w_sqrtlambdas=OrderedDict([
+                        (label, 1./(observation_sd*sd)) for label, sd in zip(coef_labels, coef_sds)]),
                     obs_sd=observation_sd,
                     response_label=observation_label)
-    # For testing, add these
+    # For computing the true EIG
     model.obs_sd = observation_sd
-    model.w_sds = {coef_label: coef_sd}
+    model.w_sds = OrderedDict([(label, sd) for label, sd in zip(coef_labels, coef_sds)])
+    model.w_sizes = OrderedDict([(label, sd.shape[-1]) for label, sd in zip(coef_labels, coef_sds)])
+    model.observation_label = observation_label
+    model.coef_labels = coef_labels
     return model
 
 

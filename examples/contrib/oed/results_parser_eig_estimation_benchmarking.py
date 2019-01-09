@@ -13,7 +13,7 @@ from matplotlib.ticker import MaxNLocator
 from pyro.contrib.util import rmv
 
 output_dir = "./run_outputs/eig_benchmark/"
-COLOURS = [[0., 0., 0.], [1, .6, 0], [1, .4, .4], [.5, .5, 1.]]
+COLOURS = [[0., 0., 0.], [1, .6, 0], [1, .4, .4], [.5, .5, 1.], [.1, .7, .4]]
 
 
 def upper_lower(array):
