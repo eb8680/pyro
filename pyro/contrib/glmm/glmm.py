@@ -87,8 +87,12 @@ def normal_inverse_gamma_linear_model(coef_means, coef_sqrtlambdas, alpha,
     # For computing the true EIG
     model.obs_sd = torch.tensor(1.)
     model.w_sds = OrderedDict([(label, 1./sqrtlambda) for label, sqrtlambda in zip(coef_labels, coef_sqrtlambdas)])
+    model.w_sizes = OrderedDict([(label, sqrtlambda.shape[-1])
+                                 for label, sqrtlambda in zip(coef_labels, coef_sqrtlambdas)])
     model.alpha = alpha
     model.beta = beta
+    model.observation_label = observation_label
+    model.coef_labels = coef_labels
     return model
 
 

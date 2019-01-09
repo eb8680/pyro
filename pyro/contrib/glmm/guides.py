@@ -13,7 +13,7 @@ from pyro.util import is_bad
 
 class LinearModelGuide(nn.Module):
 
-    def __init__(self, d, w_sizes, tikhonov_init=-2., scale_tril_init=3.):
+    def __init__(self, d, w_sizes, tikhonov_init=-2., scale_tril_init=3., **kwargs):
         """
         Guide for linear models. No amortisation happens over designs.
         Amortisation over data is taken care of by analytic formulae for
@@ -190,12 +190,12 @@ class SigmoidResponseEst(nn.Module):
 
 class NormalResponseEst(nn.Module):
 
-    def __init__(self, d, observation_dimensions, mu_init=0., sigma_init=3., **kwargs):
+    def __init__(self, d, y_sizes, mu_init=0., sigma_init=3., **kwargs):
 
         super(NormalResponseEst, self).__init__()
 
-        self.mu = {l: nn.Parameter(mu_init*torch.ones(*d, p)) for l, p in observation_dimensions.items()}
-        self.scale_tril = {l: nn.Parameter(sigma_init*torch.ones(*d, p, p)) for l, p in observation_dimensions.items()}
+        self.mu = {l: nn.Parameter(mu_init*torch.ones(*d, p)) for l, p in y_sizes.items()}
+        self.scale_tril = {l: nn.Parameter(sigma_init*torch.ones(*d, p, p)) for l, p in y_sizes.items()}
         self._registered_mu = nn.ParameterList(self.mu.values())
         self._registered_scale_tril = nn.ParameterList(self.scale_tril.values())
 
@@ -209,9 +209,9 @@ class NormalResponseEst(nn.Module):
 
 class NormalLikelihoodEst(NormalResponseEst):
 
-    def __init__(self, d, w_sizes, observation_dimensions, mu_init=0., sigma_init=3., **kwargs):
+    def __init__(self, d, w_sizes, y_sizes, mu_init=0., sigma_init=3., **kwargs):
 
-        super(NormalLikelihoodEst, self).__init__(d, observation_dimensions, mu_init, sigma_init, **kwargs)
+        super(NormalLikelihoodEst, self).__init__(d, y_sizes, mu_init, sigma_init, **kwargs)
         self.w_sizes = w_sizes
 
     def forward(self, theta_dict, design, observation_labels, target_labels):
