@@ -1,7 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
 import torch
-import numpy as np
+import math
 
 import pyro
 from pyro.contrib.util import get_indices, lexpand
@@ -15,7 +15,7 @@ def normal_inverse_gamma_ground_truth(model, design, observation_labels, target_
     sign = 2.*(eig - .5)
     p = design.shape[-2]
     nu = model.alpha*2
-    correction_factor = -(p/2.)*(np.log(2) + 1.) - torch.lgamma((nu+p)/2) + torch.lgamma(nu/2) + (p/2.)*torch.log(nu) \
+    correction_factor = -(p/2.)*(math.log(2) + 1.) - torch.lgamma((nu+p)/2) + torch.lgamma(nu/2) + (p/2.)*torch.log(nu) \
                         + ((nu+p)/2.)*(torch.digamma((nu+p)/2) \
                         - torch.digamma(nu/2))
     variance_factor = (p/2.)*(-torch.log(model.alpha) + torch.digamma(model.alpha))
@@ -34,9 +34,9 @@ def linear_model_ground_truth(model, design, observation_labels, target_labels, 
     target_posterior_covs = [S[target_indices, :][:, target_indices] for S in posterior_covs]
     if eig:
         prior_entropy = lm_H_prior(model, design, observation_labels, target_labels)
-        return prior_entropy - torch.tensor([0.5*torch.logdet(2*np.pi*np.e*C) for C in target_posterior_covs]).view(design_shape[:-2])
+        return prior_entropy - torch.tensor([0.5*torch.logdet(2*math.pi*math.e*C) for C in target_posterior_covs]).view(design_shape[:-2])
     else:
-        return torch.tensor([0.5*torch.logdet(2*np.pi*np.e*C) for C in target_posterior_covs]).view(design_shape[:-2])
+        return torch.tensor([0.5*torch.logdet(2*math.pi*math.e*C) for C in target_posterior_covs]).view(design_shape[:-2])
 
 
 def lm_H_prior(model, design, observation_labels, target_labels):
@@ -47,7 +47,7 @@ def lm_H_prior(model, design, observation_labels, target_labels):
     prior_cov = torch.diag(w_sd**2)
     target_indices = get_indices(target_labels, tensors=model.w_sds)
     target_prior_covs = prior_cov[target_indices, :][:, target_indices]
-    return 0.5*torch.logdet(2*np.pi*np.e*target_prior_covs)
+    return 0.5*torch.logdet(2*math.pi*math.e*target_prior_covs)
 
 
 def mc_H_prior(model, design, observation_labels, target_labels, num_samples=1000):
