@@ -228,7 +228,7 @@ CASES = [
     Case(
         "Linear regression model",
         (known_covariance_linear_model, {"coef_means": torch.tensor(0.),
-                                         "coef_sds": torch.tensor([.1, 10.]),
+                                         "coef_sds": torch.tensor([10., .1]),
                                          "observation_sd": torch.tensor(1.)}),
         AB_test_11d_10n_2p,
         "y",
@@ -239,12 +239,12 @@ CASES = [
              {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
               "guide": (LinearModelGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
-            # TODO: broken
-            (posterior_lm,
-             {"num_samples": 10, "num_steps": 1200, "final_num_samples": 50, "analytic_entropy": True,
-              "guide": (LinearModelGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
-              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})},
-             "Posterior with analytic entropy"),
+            # TODO: fix analytic entropy
+            # (posterior_lm,
+            #  {"num_samples": 10, "num_steps": 1200, "final_num_samples": 50, "analytic_entropy": True,
+            #   "guide": (LinearModelGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+            #   "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})},
+            #  "Posterior with analytic entropy"),
             (marginal,
              {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
               "guide": (NormalResponseEst, {"mu_init": 0., "sigma_init": 3.}),
@@ -253,23 +253,30 @@ CASES = [
         ],
         ["lm", "ground_truth", "no_re", "ab_test"]
     ),
-    # T(
-    #     "Linear model with random effects",
-    #     normal_re,
-    #     AB_test_11d_10n_12p,
-    #     "y",
-    #     "ab",
-    #     [
-    #         (naive_rainforth_eig, [52*52, 52, 52, True]),
-    #         (ba_eig_mc,
-    #          [10, 150, re_guide((10, 11)), optim.Adam({"lr": 0.05}),
-    #           False, None, 500]),
-    #         (gibbs_y_re_eig,
-    #          [10, 600, normal_response_est((10, 11)), normal_likelihood_est((10, 11)),
-    #           optim.Adam({"lr": 0.05}), False, None, 500]),
-    #         (linear_model_ground_truth, []),
-    #     ]
-    # ),
+    Case(
+        "Linear model with random effects",
+        (known_covariance_linear_model, {"coef_means": [torch.tensor(0.), torch.tensor(0.)],
+                                         "coef_sds": [torch.tensor([10., .1]), torch.ones(10)],
+                                         "observation_sd": torch.tensor(1.),
+                                         "coef_labels": ["ab", "re"]}),
+        AB_test_11d_10n_12p,
+        "y",
+        "ab",
+        [
+            (nmc, {"N": 50, "M": 50, "M_prime": 50, "independent_priors": True}),
+            (posterior_lm,
+             {"num_samples": 10, "num_steps": 150, "final_num_samples": 500,
+              "guide": (LinearModelGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (marginal_re,
+             {"num_samples": 10, "num_steps": 600, "final_num_samples": 500,
+              "marginal_guide": (NormalResponseEst, {"mu_init": 0., "sigma_init": 3.}),
+              "cond_guide": (NormalLikelihoodEst, {"mu_init": 0., "sigma_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (truth_lm, {})
+        ],
+        ["lm", "re", "ab_test"]
+    ),
     # T(
     #     "Linear regression model (large n)",
     #     basic_2p_linear_model_sds_10_0pt1,
@@ -579,7 +586,7 @@ def main(case_tags, estimator_tags, num_runs, num_parallel, experiment_name):
     if "*" in case_tags or "all" in case_tags:
         cases = CASES
     else:
-        cases = [c for c in CASES if any(tag in c.tags for tag in case_tags)]
+        cases = [c for c in CASES if all(tag in c.tags for tag in case_tags)]
     for case in cases:
         # Create the model in a way that allows us to pickle its params
         model_func, model_params = case.model
