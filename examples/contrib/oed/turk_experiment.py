@@ -24,13 +24,6 @@ try:
 except ImportError:
     from contextlib2 import ExitStack  # python 2
 
-
-output_dir = "./run_outputs/"
-experiment_name = output_dir+"turk_simulation{}".format(datetime.datetime.now().isoformat())
-logging.basicConfig(filename=experiment_name+'.log',level=logging.DEBUG)
-# logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
-results_file = experiment_name+'.result_stream.pickle'
-
 EPSILON = torch.tensor(2 ** -24)
 CHECK_RAINFORTH = False
 RE_MULTIPLIER = 1.
@@ -294,7 +287,16 @@ def true_model(p, p_re, num_participants):
     return inner_true_model
 
 
-def main(num_runs, num_parallel, num_participants, num_questions):
+def main(num_runs, num_parallel, num_participants, num_questions, experiment_name):
+    output_dir = "./run_outputs/turk_simulation/"
+    if not experiment_name:
+        experiment_name = output_dir+"{}".format(datetime.datetime.now().isoformat())
+    else:
+        experiment_name = output_dir+experiment_name
+    logging.basicConfig(filename=experiment_name+'.log',level=logging.DEBUG)
+    # logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+    results_file = experiment_name+'.result_stream.pickle'
+
     print("Experiment", experiment_name)
     typs = ['oed', 'oed_no_re', 'rand']
     logging.info("Types: {}, num runs: {}, num_parallel: {}, "
@@ -513,5 +515,6 @@ if __name__ == "__main__":
     parser.add_argument("--num-parallel", nargs="?", default=5, type=int)
     parser.add_argument("--num-participants", nargs="?", default=10, type=int)
     parser.add_argument("--num-questions", nargs="?", default=5, type=int)
+    parser.add_argument("--name", nargs="?", default="", type=str)
     args = parser.parse_args()
-    main(args.num_runs, args.num_parallel, args.num_participants, args.num_questions)
+    main(args.num_runs, args.num_parallel, args.num_participants, args.num_questions, args.name)
