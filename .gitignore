@@ -133,3 +133,5 @@ ENV/
 *.swo
 *.swp
 *~
+/.metadata/
+*TempFiles*
