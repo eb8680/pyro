@@ -111,6 +111,7 @@ class SigmoidPosteriorGuide(LinearModelPosteriorGuide):
             scale_tril[l] = scale_tril[l] + self.scale_tril0[l] * rexpand(mask0.float(), 1, 1)
             scale_tril[l] = scale_tril[l] - scale_tril[l] * rexpand(mask1.float(), 1, 1)
             scale_tril[l] = scale_tril[l] + self.scale_tril1[l] * rexpand(mask1.float(), 1, 1)
+            scale_tril[l] = rtril(scale_tril[l])
 
         return mu, scale_tril
 

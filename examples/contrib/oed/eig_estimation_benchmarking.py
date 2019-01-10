@@ -7,7 +7,6 @@ import torch
 import pickle
 import numpy as np
 import datetime
-import inspect
 
 import pyro
 from pyro import optim
@@ -301,6 +300,28 @@ CASES = [
         ["lm", "ground_truth", "no_re", "ab_test", "large_n", "large_dim_y"],
     ),
     Case(
+        "Sigmoid regression model",
+        (sigmoid_model_fixed, {"coef_means": torch.tensor([1., 10.]),
+                               "coef_sds": torch.tensor([.25, 8.]),
+                               "observation_sd": torch.tensor(2.)}),
+        loc_15d_1n_2p,
+        "y",
+        "w",
+        [
+            (nmc, {"N": 50, "M": 50}),
+            (posterior_mc,
+             {"num_samples": 10, "num_steps": 1500, "final_num_samples": 500,
+              "guide": (SigmoidPosteriorGuide, {"mu_init": 0., "scale_tril_init": torch.tensor([[1., 0.], [0., 20.]]),
+                                                "tikhonov_init": -2.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (marginal,
+             {"num_samples": 10, "num_steps": 2000, "final_num_samples": 500,
+              "guide": (SigmoidMarginalGuide, {"mu_init": 0., "sigma_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+        ],
+        ["sigmoid", "no_re", "location"]
+    ),
+    Case(
         "Sigmoid with random effects",
         (sigmoid_model_fixed, {"coef_means": [torch.tensor([1.]), torch.tensor([10.])],
                                "coef_sds": [torch.tensor([.25]), torch.tensor([8.])],
@@ -323,25 +344,6 @@ CASES = [
         ],
         ["sigmoid", "re", "location"]
     ),
-    # Case(
-    #     "Sigmoid regression model",
-    #     (sigmoid_model_fixed, {"coef_means": torch.tensor([1., 10.]),
-    #                            "coef_sds": torch.tensor([.25, 8.]),
-    #                            "observation_sd": torch.tensor(2.)}),
-    #     loc_15d_1n_2p,
-    #     "y",
-    #     "w",
-    #     [
-    #         (naive_rainforth_eig, [70*70, 70]),
-    #         (ba_eig_mc,
-    #          [10, 400, sigmoid_high_guide((10, 15)), optim.Adam({"lr": 0.05}),
-    #           False, None, 500]),
-    #         (gibbs_y_eig,
-    #          [20, 4000, sigmoid_response_est((10, 15)), optim.Adam({"lr": 0.05}),
-    #           False, None, 500]),
-    #         (naive_rainforth_eig, [300*300, 300]),
-    #     ]
-    # ),
 ]
 #
 # CMP_TEST_CASES = [
