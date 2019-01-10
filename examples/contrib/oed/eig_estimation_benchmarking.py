@@ -27,9 +27,9 @@ from pyro.contrib.glmm import (
     known_covariance_linear_model, logistic_regression_model
 )
 from pyro.contrib.glmm.guides import (
-    LinearModelGuide, NormalInverseGammaGuide, SigmoidGuide, GuideDV, LogisticGuide,
-    LogisticResponseEst, LogisticLikelihoodEst, SigmoidResponseEst, SigmoidLikelihoodEst,
-    NormalResponseEst, NormalLikelihoodEst
+    LinearModelPosteriorGuide, NormalInverseGammaPosteriorGuide, SigmoidPosteriorGuide, GuideDV, LogisticPosteriorGuide,
+    LogisticMarginalGuide, LogisticLikelihoodGuide, SigmoidMarginalGuide, SigmoidLikelihoodGuide,
+    NormalMarginalGuide, NormalLikelihoodGuide
 )
 
 """
@@ -188,12 +188,12 @@ CASES = [
             (nmc, {"N": 60*60, "M": 60}),
             (posterior_mc,
              {"num_samples": 10, "num_steps": 800, "final_num_samples": 500,
-              "guide": (NormalInverseGammaGuide, {"mf": True, "alpha_init": 10., "b0_init": 10.,
-                                                  "tikhonov_init": -2., "scale_tril_init": 3.}),
+              "guide": (NormalInverseGammaPosteriorGuide, {"mf": True, "alpha_init": 10., "b0_init": 10.,
+                                                           "tikhonov_init": -2., "scale_tril_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (marginal,
              {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
-              "guide": (NormalResponseEst, {"mu_init": 0., "sigma_init": 3.}),
+              "guide": (NormalMarginalGuide, {"mu_init": 0., "sigma_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (truth_nigam, {}),
         ],
@@ -214,13 +214,13 @@ CASES = [
             # TODO: Use LFIRE instead
             (posterior_mc,
              {"num_samples": 10, "num_steps": 800, "final_num_samples": 500,
-              "guide": (NormalInverseGammaGuide, {"mf": True, "alpha_init": 10., "b0_init": 10.,
-                                                  "tikhonov_init": -2., "scale_tril_init": 3.}),
+              "guide": (NormalInverseGammaPosteriorGuide, {"mf": True, "alpha_init": 10., "b0_init": 10.,
+                                                           "tikhonov_init": -2., "scale_tril_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (marginal_re,
              {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
-              "marginal_guide": (NormalResponseEst, {"mu_init": 0., "sigma_init": 3.}),
-              "cond_guide": (NormalLikelihoodEst, {"mu_init": 0., "sigma_init": 3.}),
+              "marginal_guide": (NormalMarginalGuide, {"mu_init": 0., "sigma_init": 3.}),
+              "cond_guide": (NormalLikelihoodGuide, {"mu_init": 0., "sigma_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (truth_lm, {}),
         ],
@@ -238,7 +238,7 @@ CASES = [
             (nmc, {"N": 60*60, "M": 60}),
             (posterior_lm,
              {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
-              "guide": (LinearModelGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+              "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             # TODO: fix analytic entropy
             # (Estimator("Posterior with analytic entropy", ["posterior", "gibbs", "ba", "ae"], ba_eig_lm),
@@ -247,7 +247,7 @@ CASES = [
             #   "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (marginal,
              {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
-              "guide": (NormalResponseEst, {"mu_init": 0., "sigma_init": 3.}),
+              "guide": (NormalMarginalGuide, {"mu_init": 0., "sigma_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (truth_lm, {})
         ],
@@ -266,12 +266,12 @@ CASES = [
             (nmc, {"N": 50, "M": 50, "M_prime": 50, "independent_priors": True}),
             (posterior_lm,
              {"num_samples": 10, "num_steps": 150, "final_num_samples": 500,
-              "guide": (LinearModelGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+              "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (marginal_re,
              {"num_samples": 10, "num_steps": 600, "final_num_samples": 500,
-              "marginal_guide": (NormalResponseEst, {"mu_init": 0., "sigma_init": 3.}),
-              "cond_guide": (NormalLikelihoodEst, {"mu_init": 0., "sigma_init": 3.}),
+              "marginal_guide": (NormalMarginalGuide, {"mu_init": 0., "sigma_init": 3.}),
+              "cond_guide": (NormalLikelihoodGuide, {"mu_init": 0., "sigma_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (truth_lm, {})
         ],
@@ -290,11 +290,11 @@ CASES = [
             (nmc, {"N": 60*60, "M": 60}),
             (posterior_lm,
              {"num_samples": 10, "num_steps": 1000, "final_num_samples": 500,
-              "guide": (LinearModelGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+              "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (marginal,
              {"num_samples": 10, "num_steps": 700, "final_num_samples": 500,
-              "guide": (NormalResponseEst, {"mu_init": 0., "sigma_init": 3.}),
+              "guide": (NormalMarginalGuide, {"mu_init": 0., "sigma_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (truth_lm, {})
         ],
@@ -313,12 +313,12 @@ CASES = [
             (nmc, {"N": 50, "M": 50, "M_prime": 50, "independent_priors": True}),
             (posterior_mc,
              {"num_samples": 10, "num_steps": 1500, "final_num_samples": 500,
-              "guide": (SigmoidGuide, {"mu_init": 0., "scale_tril_init": 20., "tikhonov_init": -2.}),
+              "guide": (SigmoidPosteriorGuide, {"mu_init": 0., "scale_tril_init": 20., "tikhonov_init": -2.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (marginal_re,
              {"num_samples": 10, "num_steps": 2000, "final_num_samples": 500,
-              "marginal_guide": (SigmoidResponseEst, {"mu_init": 0., "sigma_init": 3.}),
-              "cond_guide": (SigmoidLikelihoodEst, {"mu_init": 0., "sigma_init": 3.}),
+              "marginal_guide": (SigmoidMarginalGuide, {"mu_init": 0., "sigma_init": 3.}),
+              "cond_guide": (SigmoidLikelihoodGuide, {"mu_init": 0., "sigma_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
         ],
         ["sigmoid", "re", "location"]

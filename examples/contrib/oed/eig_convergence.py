@@ -26,9 +26,9 @@ from pyro.contrib.glmm import (
     known_covariance_linear_model, logistic_regression_model
 )
 from pyro.contrib.glmm.guides import (
-    LinearModelGuide, NormalInverseGammaGuide, SigmoidGuide, GuideDV, LogisticGuide,
-    LogisticResponseEst, LogisticLikelihoodEst, SigmoidResponseEst, SigmoidLikelihoodEst,
-    NormalResponseEst, NormalLikelihoodEst
+    LinearModelPosteriorGuide, NormalInverseGammaPosteriorGuide, SigmoidPosteriorGuide, GuideDV, LogisticPosteriorGuide,
+    LogisticMarginalGuide, LogisticLikelihoodGuide, SigmoidMarginalGuide, SigmoidLikelihoodGuide,
+    NormalMarginalGuide, NormalLikelihoodGuide
 )
 
 #########################################################################################
@@ -58,17 +58,17 @@ loc_4d_1n_2p = torch.tensor([[-5., 1], [-4.9, 1.], [4.9, 1], [5., 1.]]).unsqueez
 basic_2p_linear_model_sds_10_2pt5, basic_2p_guide = zero_mean_unit_obs_sd_lm(torch.tensor([10., 2.5]))
 _, basic_2p_guide_w1 = zero_mean_unit_obs_sd_lm(torch.tensor([10., 2.5]), coef_label="w1")
 basic_2p_linear_model_sds_10_0pt1, _ = zero_mean_unit_obs_sd_lm(torch.tensor([10., .1]))
-basic_2p_ba_guide = lambda d: LinearModelGuide(d, {"w": 2})  # noqa: E731
-normal_response_est = lambda d: NormalResponseEst(d, {"y": 10})
-normal_response_est_20 = lambda d: NormalResponseEst(d, {"y": 20})
-normal_likelihood_est = lambda d: NormalLikelihoodEst(d, {"ab": 2, "re": 10}, {"y": 10})
-normal_likelihood_est2 = lambda d: NormalLikelihoodEst(d, {"w": 2}, {"y": 10})
+basic_2p_ba_guide = lambda d: LinearModelPosteriorGuide(d, {"w": 2})  # noqa: E731
+normal_response_est = lambda d: NormalMarginalGuide(d, {"y": 10})
+normal_response_est_20 = lambda d: NormalMarginalGuide(d, {"y": 20})
+normal_likelihood_est = lambda d: NormalLikelihoodGuide(d, {"ab": 2, "re": 10}, {"y": 10})
+normal_likelihood_est2 = lambda d: NormalLikelihoodGuide(d, {"w": 2}, {"y": 10})
 group_2p_linear_model_sds_10_2pt5 = group_linear_model(torch.tensor(0.), torch.tensor([10.]), torch.tensor(0.),
                                                        torch.tensor([2.5]), torch.tensor(1.))
 normal_re = group_linear_model(torch.tensor(0.), torch.tensor([10., .1]), torch.tensor(0.),
                                torch.ones(10), torch.tensor(1.), coef1_label="ab", coef2_label="re")
 group_2p_guide = group_normal_guide(torch.tensor(1.), (1,), (1,))
-group_2p_ba_guide = lambda d: LinearModelGuide(d, {"w1": 1, "w2": 1})  # noqa: E731
+group_2p_ba_guide = lambda d: LinearModelPosteriorGuide(d, {"w1": 1, "w2": 1})  # noqa: E731
 nig_2p_linear_model_3_2 = normal_inverse_gamma_linear_model(torch.tensor(0.), torch.tensor([.1, 10.]),
                                                             torch.tensor([3.]), torch.tensor([2.]))
 nig_2p_linear_model_15_14 = normal_inverse_gamma_linear_model(torch.tensor(0.), torch.tensor([.1, 10.]),
@@ -78,10 +78,10 @@ nig_re_3_2 = normal_inverse_gamma_linear_model([torch.tensor(0.), torch.tensor(0
                                                torch.tensor([3.]), torch.tensor([2.]),
                                                coef_labels=["ab", "re"])
 
-re_guide = lambda d: LinearModelGuide(d, {"ab": 2, "re": 10})
+re_guide = lambda d: LinearModelPosteriorGuide(d, {"ab": 2, "re": 10})
 nig_2p_guide = normal_inverse_gamma_guide((2,), mf=True)
-nig_2p_ba_guide = lambda d: NormalInverseGammaGuide(d, {"w": 2})  # noqa: E731
-nig_2p_ba_mf_guide = lambda d: NormalInverseGammaGuide(d, {"w": 2}, mf=True)  # noqa: E731
+nig_2p_ba_guide = lambda d: NormalInverseGammaPosteriorGuide(d, {"w": 2})  # noqa: E731
+nig_2p_ba_mf_guide = lambda d: NormalInverseGammaPosteriorGuide(d, {"w": 2}, mf=True)  # noqa: E731
 
 sigmoid_2p_model = sigmoid_model_fixed(torch.tensor([1., 10.]), torch.tensor([.25, 8.]),
                                        torch.tensor(2.))
@@ -94,16 +94,16 @@ logistic_2p_model = logistic_regression_model(torch.tensor([1., 10.]), torch.ten
 logistic_random_effects = logistic_regression_model([torch.tensor([1.]), torch.tensor([10.])],
                                                     [torch.tensor([.25]), torch.tensor([8.])],
                                                     coef_labels=["coef", "loc"])
-loc_ba_guide = lambda d: LinearModelGuide(d, {"w1": 2})  # noqa: E731
-logistic_guide  = lambda d: LogisticGuide(d, {"w1": 2})
-logistic_random_effect_guide = lambda d: LogisticGuide(d, {"loc": 1})
-logistic_response_est = lambda d: LogisticResponseEst(d, ["y"])
-logistic_likelihood_est = lambda d: LogisticLikelihoodEst(d, {"coef": 1, "loc": 1}, ["y"])
-sigmoid_response_est = lambda d: SigmoidResponseEst(d, ["y"])
-sigmoid_likelihood_est = lambda d: SigmoidLikelihoodEst(d, {"coef": 1, "loc": 1}, ["y"])
-sigmoid_low_guide = lambda d: SigmoidGuide(d, {"w": 2})  # noqa: E731
-sigmoid_high_guide = lambda d: SigmoidGuide(d, {"w": 2})  # noqa: E731
-sigmoid_random_effect_guide = lambda d: SigmoidGuide(d, {"coef": 1, "loc": 1})
+loc_ba_guide = lambda d: LinearModelPosteriorGuide(d, {"w1": 2})  # noqa: E731
+logistic_guide  = lambda d: LogisticPosteriorGuide(d, {"w1": 2})
+logistic_random_effect_guide = lambda d: LogisticPosteriorGuide(d, {"loc": 1})
+logistic_response_est = lambda d: LogisticMarginalGuide(d, ["y"])
+logistic_likelihood_est = lambda d: LogisticLikelihoodGuide(d, {"coef": 1, "loc": 1}, ["y"])
+sigmoid_response_est = lambda d: SigmoidMarginalGuide(d, ["y"])
+sigmoid_likelihood_est = lambda d: SigmoidLikelihoodGuide(d, {"coef": 1, "loc": 1}, ["y"])
+sigmoid_low_guide = lambda d: SigmoidPosteriorGuide(d, {"w": 2})  # noqa: E731
+sigmoid_high_guide = lambda d: SigmoidPosteriorGuide(d, {"w": 2})  # noqa: E731
+sigmoid_random_effect_guide = lambda d: SigmoidPosteriorGuide(d, {"coef": 1, "loc": 1})
 
 ########################################################################################
 # Aux

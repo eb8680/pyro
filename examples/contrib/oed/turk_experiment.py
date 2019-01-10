@@ -17,7 +17,7 @@ from pyro import poutine
 from pyro.contrib.util import rmv, rexpand, lexpand, rtril
 from pyro.contrib.glmm import iter_iaranges_to_shape, broadcast_cat
 from pyro.contrib.oed.eig import naive_rainforth_eig, gibbs_y_eig, gibbs_y_re_eig, elbo_learn
-from pyro.contrib.glmm.guides import SigmoidResponseEst, SigmoidLikelihoodEst
+from pyro.contrib.glmm.guides import SigmoidMarginalGuide, SigmoidLikelihoodGuide
 
 try:
     from contextlib import ExitStack  # python 3
@@ -381,10 +381,10 @@ def main(num_runs, num_parallel, num_participants, num_questions, experiment_nam
                 value = pyro.param(name)
                 logging.info("{} ({}):\n{}".format(name, value.shape, value[0, 0, ...]))
 
-            sigmoid_response_est = SigmoidResponseEst(
+            sigmoid_response_est = SigmoidMarginalGuide(
                 (num_parallel, N_DESIGNS), "y", mu_init=marginal_mu_init, sigma_init=marginal_sigma_init
             )
-            sigmoid_likelihood_est = SigmoidLikelihoodEst(
+            sigmoid_likelihood_est = SigmoidLikelihoodGuide(
                 (num_parallel, N_DESIGNS), {"fixed_effects": N_FEATURES, "random_effects": N_FEATURES}, "y",
                 mu_init=like_mu_init, sigma_init=like_sigma_init
             )

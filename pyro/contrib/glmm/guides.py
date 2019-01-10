@@ -11,7 +11,7 @@ from pyro.ops.linalg import rinverse
 from pyro.util import is_bad
 
 
-class LinearModelGuide(nn.Module):
+class LinearModelPosteriorGuide(nn.Module):
 
     def __init__(self, d, w_sizes, tikhonov_init=-2., scale_tril_init=3., **kwargs):
         """
@@ -24,7 +24,7 @@ class LinearModelGuide(nn.Module):
         :param float tikhonov_init: initial value for `tikhonov_diag` parameter.
         :param float scale_tril_init: initial value for `scale_tril` parameter.
         """
-        super(LinearModelGuide, self).__init__()
+        super(LinearModelPosteriorGuide, self).__init__()
         # Represent each parameter group as independent Gaussian
         # Making a weak mean-field assumption
         # To avoid this- combine labels
@@ -69,11 +69,11 @@ class LinearModelGuide(nn.Module):
             pyro.sample(l, w_dist)
 
 
-class SigmoidGuide(LinearModelGuide):
+class SigmoidPosteriorGuide(LinearModelPosteriorGuide):
 
     def __init__(self, d, w_sizes, scale_tril_init=3., mu_init=0., **kwargs):
-        super(SigmoidGuide, self).__init__(d, w_sizes, scale_tril_init=scale_tril_init,
-                                           **kwargs)
+        super(SigmoidPosteriorGuide, self).__init__(d, w_sizes, scale_tril_init=scale_tril_init,
+                                                    **kwargs)
         self.mu0 = {l: nn.Parameter(
                 mu_init*torch.ones(*d, p)) for l, p in w_sizes.items()}
         self._registered_mu0 = nn.ParameterList(self.mu0.values())
@@ -115,11 +115,11 @@ class SigmoidGuide(LinearModelGuide):
         return mu, scale_tril
 
 
-class LogisticGuide(LinearModelGuide):
+class LogisticPosteriorGuide(LinearModelPosteriorGuide):
 
     def __init__(self, d, w_sizes, scale_tril_init=3., mu_init=0., **kwargs):
-        super(LogisticGuide, self).__init__(d, w_sizes, scale_tril_init=scale_tril_init,
-                                           **kwargs)
+        super(LogisticPosteriorGuide, self).__init__(d, w_sizes, scale_tril_init=scale_tril_init,
+                                                     **kwargs)
         self.mu0 = {l: nn.Parameter(
                 mu_init*torch.ones(*d, p)) for l, p in w_sizes.items()}
         self._registered_mu0 = nn.ParameterList(self.mu0.values())
@@ -155,159 +155,11 @@ class LogisticGuide(LinearModelGuide):
         return mu, scale_tril
 
 
-class SigmoidResponseEst(nn.Module):
-
-    def __init__(self, d, y_sizes, mu_init=0., sigma_init=20., **kwargs):
-
-        super(SigmoidResponseEst, self).__init__()
-
-        assert all(d == 1 for d in y_sizes.values())
-        self.mu = {l: nn.Parameter(mu_init*torch.ones(*d, 1)) for l in y_sizes}
-        self.sigma = {l: nn.Parameter(sigma_init*torch.ones(*d, 1)) for l in y_sizes}
-        self._registered_mu = nn.ParameterList(self.mu.values())
-        self._registered_sigma = nn.ParameterList(self.sigma.values())
-        # TODO read from torch float specs
-        self.epsilon = torch.tensor(2**-24)
-        self.softplus = nn.Softplus()
-
-    def forward(self, design, observation_labels, target_labels):
-
-        pyro.module("marginal_guide", self)
-
-        for l in observation_labels:
-            if is_bad(self.mu[l]):
-                raise ArithmeticError("NaN in marginal mean")
-            elif is_bad(self.sigma[l]):
-                raise ArithmeticError("NaN in marginal sigma")
-            self.sample_sigmoid(l, self.mu[l], self.sigma[l])
-
-    def sample_sigmoid(self, label, mu, sigma):
-
-            response_dist = dist.CensoredSigmoidNormal(
-                loc=mu, scale=self.softplus(sigma), upper_lim=1.-self.epsilon, lower_lim=self.epsilon
-            ).independent(1)
-            pyro.sample(label, response_dist)
-
-
-class NormalResponseEst(nn.Module):
-
-    def __init__(self, d, y_sizes, mu_init=0., sigma_init=3., **kwargs):
-
-        super(NormalResponseEst, self).__init__()
-
-        self.mu = {l: nn.Parameter(mu_init*torch.ones(*d, p)) for l, p in y_sizes.items()}
-        self.scale_tril = {l: nn.Parameter(sigma_init*lexpand(torch.eye(p), *d)) for l, p in y_sizes.items()}
-        self._registered_mu = nn.ParameterList(self.mu.values())
-        self._registered_scale_tril = nn.ParameterList(self.scale_tril.values())
-
-    def forward(self, design, observation_labels, target_labels):
-
-        pyro.module("marginal_guide", self)
-
-        for l in observation_labels:
-            pyro.sample(l, dist.MultivariateNormal(self.mu[l], scale_tril=rtril(self.scale_tril[l])))
-
-
-class NormalLikelihoodEst(NormalResponseEst):
-
-    def __init__(self, d, w_sizes, y_sizes, mu_init=0., sigma_init=3., **kwargs):
-
-        super(NormalLikelihoodEst, self).__init__(d, y_sizes, mu_init, sigma_init, **kwargs)
-        self.w_sizes = w_sizes
-
-    def forward(self, theta_dict, design, observation_labels, target_labels):
-
-        theta = torch.cat(list(theta_dict.values()), dim=-1)
-        indices = get_indices(target_labels, self.w_sizes)
-        subdesign = design[..., indices]
-        centre = rmv(subdesign, theta)
-
-        pyro.module("likelihood_guide", self)
-
-        for l in observation_labels:
-            pyro.sample(l, dist.MultivariateNormal(centre + self.mu[l], scale_tril=rtril(self.scale_tril[l])))
-
-
-class SigmoidLikelihoodEst(SigmoidResponseEst):
-
-    def __init__(self, d, w_sizes, y_sizes, mu_init=0., sigma_init=10., **kwargs):
-
-        super(SigmoidLikelihoodEst, self).__init__(d, y_sizes, mu_init, sigma_init, **kwargs)
-        self.log_multiplier = nn.Parameter(torch.zeros(*d, 1))
-        self.w_sizes = w_sizes
-
-    def forward(self, theta_dict, design, observation_labels, target_labels):
-
-        theta = torch.cat(list(theta_dict.values()), dim=-1)
-        indices = get_indices(target_labels, self.w_sizes)
-        subdesign = design[..., indices]
-        centre = rmv(subdesign, theta)
-        scaled_centre = torch.exp(self.log_multiplier)*centre
-
-        pyro.module("likelihood_guide", self)
-
-        for l in observation_labels:
-            if is_bad(self.mu[l]):
-                raise ArithmeticError("NaN in likelihood mean")
-            elif is_bad(self.sigma[l]):
-                raise ArithmeticError("NaN in likelihood sigma")
-            self.sample_sigmoid(l, scaled_centre + self.mu[l], self.sigma[l])
-
-
-class LogisticResponseEst(nn.Module):
-    
-    def __init__(self, d, observation_labels, p_logit_init=0., **kwargs):
-
-        super(LogisticResponseEst, self).__init__()
-
-        self.logits = {l: nn.Parameter(p_logit_init*torch.ones(*d, 1)) for l in observation_labels}
-        self._registered = nn.ParameterList(self.logits.values())
-
-    
-    def forward(self, design, observation_labels, target_labels):
-
-        pyro.module("marginal_guide", self)
-
-        for l in observation_labels:
-            y_dist = dist.Bernoulli(logits=self.logits[l]).independent(1)
-            pyro.sample(l, y_dist)
-
-
-class LogisticLikelihoodEst(nn.Module):
-    
-    def __init__(self, d, w_sizes, observation_labels, p_logit_init=0., **kwargs):
-
-        super(LogisticLikelihoodEst, self).__init__()
-
-        self.logit_correction = {l: nn.Parameter(p_logit_init*torch.ones(*d, 1)) for l in observation_labels}
-        self.logit_offset = {l: nn.Parameter(torch.zeros(*d, 1)) for l in observation_labels}
-        self._registered_correction = nn.ParameterList(self.logit_correction.values())
-        self._registered_offset = nn.ParameterList(self.logit_offset.values())
-        self.w_sizes = w_sizes
-        self.sigmoid = nn.Sigmoid()
-        self.softplus = nn.Softplus()
-    
-    def forward(self, theta_dict, design, observation_labels, target_labels):
-
-        theta = torch.cat(list(theta_dict.values()), dim=-1)
-        indices = get_indices(target_labels, self.w_sizes)
-        subdesign = design[..., indices]
-        centre = rmv(subdesign, theta)
-
-        pyro.module("likelihood_guide", self)
-
-        for l in observation_labels:
-            p = .5*(self.sigmoid(centre + self.logit_offset[l] + self.softplus(self.logit_correction[l]))
-                    + self.sigmoid(centre + self.logit_offset[l] - self.softplus(self.logit_correction[l])))
-            y_dist = dist.Bernoulli(p).independent(1)
-            pyro.sample(l, y_dist)
-
-
-class NormalInverseGammaGuide(LinearModelGuide):
+class NormalInverseGammaPosteriorGuide(LinearModelPosteriorGuide):
 
     def __init__(self, d, w_sizes, mf=False, tau_label="tau", alpha_init=10.,
                  b0_init=10., **kwargs):
-        super(NormalInverseGammaGuide, self).__init__(d, w_sizes, **kwargs)
+        super(NormalInverseGammaPosteriorGuide, self).__init__(d, w_sizes, **kwargs)
         self.alpha = nn.Parameter(alpha_init*torch.ones(*d))
         self.b0 = nn.Parameter(b0_init*torch.ones(*d))
         self.mf = mf
@@ -347,6 +199,153 @@ class NormalInverseGammaGuide(LinearModelGuide):
                     w_dist = dist.MultivariateNormal(mu[label],
                                                      scale_tril=scale_tril[label]*obs_sd)
                 pyro.sample(label, w_dist)
+
+
+class NormalMarginalGuide(nn.Module):
+
+    def __init__(self, d, y_sizes, mu_init=0., sigma_init=3., **kwargs):
+
+        super(NormalMarginalGuide, self).__init__()
+
+        self.mu = {l: nn.Parameter(mu_init*torch.ones(*d, p)) for l, p in y_sizes.items()}
+        self.scale_tril = {l: nn.Parameter(sigma_init*lexpand(torch.eye(p), *d)) for l, p in y_sizes.items()}
+        self._registered_mu = nn.ParameterList(self.mu.values())
+        self._registered_scale_tril = nn.ParameterList(self.scale_tril.values())
+
+    def forward(self, design, observation_labels, target_labels):
+
+        pyro.module("marginal_guide", self)
+
+        for l in observation_labels:
+            pyro.sample(l, dist.MultivariateNormal(self.mu[l], scale_tril=rtril(self.scale_tril[l])))
+
+
+class NormalLikelihoodGuide(NormalMarginalGuide):
+
+    def __init__(self, d, w_sizes, y_sizes, mu_init=0., sigma_init=3., **kwargs):
+
+        super(NormalLikelihoodGuide, self).__init__(d, y_sizes, mu_init, sigma_init, **kwargs)
+        self.w_sizes = w_sizes
+
+    def forward(self, theta_dict, design, observation_labels, target_labels):
+
+        theta = torch.cat(list(theta_dict.values()), dim=-1)
+        indices = get_indices(target_labels, self.w_sizes)
+        subdesign = design[..., indices]
+        centre = rmv(subdesign, theta)
+
+        pyro.module("likelihood_guide", self)
+
+        for l in observation_labels:
+            pyro.sample(l, dist.MultivariateNormal(centre + self.mu[l], scale_tril=rtril(self.scale_tril[l])))
+
+
+class SigmoidMarginalGuide(nn.Module):
+
+    def __init__(self, d, y_sizes, mu_init=0., sigma_init=20., **kwargs):
+
+        super(SigmoidMarginalGuide, self).__init__()
+
+        assert all(d == 1 for d in y_sizes.values())
+        self.mu = {l: nn.Parameter(mu_init*torch.ones(*d, 1)) for l in y_sizes}
+        self.sigma = {l: nn.Parameter(sigma_init*torch.ones(*d, 1)) for l in y_sizes}
+        self._registered_mu = nn.ParameterList(self.mu.values())
+        self._registered_sigma = nn.ParameterList(self.sigma.values())
+        # TODO read from torch float specs
+        self.epsilon = torch.tensor(2**-24)
+        self.softplus = nn.Softplus()
+
+    def forward(self, design, observation_labels, target_labels):
+
+        pyro.module("marginal_guide", self)
+
+        for l in observation_labels:
+            if is_bad(self.mu[l]):
+                raise ArithmeticError("NaN in marginal mean")
+            elif is_bad(self.sigma[l]):
+                raise ArithmeticError("NaN in marginal sigma")
+            self.sample_sigmoid(l, self.mu[l], self.sigma[l])
+
+    def sample_sigmoid(self, label, mu, sigma):
+
+            response_dist = dist.CensoredSigmoidNormal(
+                loc=mu, scale=self.softplus(sigma), upper_lim=1.-self.epsilon, lower_lim=self.epsilon
+            ).independent(1)
+            pyro.sample(label, response_dist)
+
+
+class SigmoidLikelihoodGuide(SigmoidMarginalGuide):
+
+    def __init__(self, d, w_sizes, y_sizes, mu_init=0., sigma_init=10., **kwargs):
+
+        super(SigmoidLikelihoodGuide, self).__init__(d, y_sizes, mu_init, sigma_init, **kwargs)
+        self.log_multiplier = nn.Parameter(torch.zeros(*d, 1))
+        self.w_sizes = w_sizes
+
+    def forward(self, theta_dict, design, observation_labels, target_labels):
+
+        theta = torch.cat(list(theta_dict.values()), dim=-1)
+        indices = get_indices(target_labels, self.w_sizes)
+        subdesign = design[..., indices]
+        centre = rmv(subdesign, theta)
+        scaled_centre = torch.exp(self.log_multiplier)*centre
+
+        pyro.module("likelihood_guide", self)
+
+        for l in observation_labels:
+            if is_bad(self.mu[l]):
+                raise ArithmeticError("NaN in likelihood mean")
+            elif is_bad(self.sigma[l]):
+                raise ArithmeticError("NaN in likelihood sigma")
+            self.sample_sigmoid(l, scaled_centre + self.mu[l], self.sigma[l])
+
+
+class LogisticMarginalGuide(nn.Module):
+    
+    def __init__(self, d, observation_labels, p_logit_init=0., **kwargs):
+
+        super(LogisticMarginalGuide, self).__init__()
+
+        self.logits = {l: nn.Parameter(p_logit_init*torch.ones(*d, 1)) for l in observation_labels}
+        self._registered = nn.ParameterList(self.logits.values())
+
+    def forward(self, design, observation_labels, target_labels):
+
+        pyro.module("marginal_guide", self)
+
+        for l in observation_labels:
+            y_dist = dist.Bernoulli(logits=self.logits[l]).independent(1)
+            pyro.sample(l, y_dist)
+
+
+class LogisticLikelihoodGuide(nn.Module):
+    
+    def __init__(self, d, w_sizes, observation_labels, p_logit_init=0., **kwargs):
+
+        super(LogisticLikelihoodGuide, self).__init__()
+
+        self.logit_correction = {l: nn.Parameter(p_logit_init*torch.ones(*d, 1)) for l in observation_labels}
+        self.logit_offset = {l: nn.Parameter(torch.zeros(*d, 1)) for l in observation_labels}
+        self._registered_correction = nn.ParameterList(self.logit_correction.values())
+        self._registered_offset = nn.ParameterList(self.logit_offset.values())
+        self.w_sizes = w_sizes
+        self.sigmoid = nn.Sigmoid()
+        self.softplus = nn.Softplus()
+    
+    def forward(self, theta_dict, design, observation_labels, target_labels):
+
+        theta = torch.cat(list(theta_dict.values()), dim=-1)
+        indices = get_indices(target_labels, self.w_sizes)
+        subdesign = design[..., indices]
+        centre = rmv(subdesign, theta)
+
+        pyro.module("likelihood_guide", self)
+
+        for l in observation_labels:
+            p = .5*(self.sigmoid(centre + self.logit_offset[l] + self.softplus(self.logit_correction[l]))
+                    + self.sigmoid(centre + self.logit_offset[l] - self.softplus(self.logit_correction[l])))
+            y_dist = dist.Bernoulli(p).independent(1)
+            pyro.sample(l, y_dist)
 
 
 class GuideDV(nn.Module):
