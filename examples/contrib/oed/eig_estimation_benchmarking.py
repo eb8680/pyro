@@ -118,6 +118,9 @@ Case = namedtuple("EIGBenchmarkingCase", [
 ])
 
 CASES = [
+    #############################################################################################################
+    # Normal inverse gamma, with AB testing
+    #############################################################################################################
     Case(
         "Normal inverse gamma model, information on w, tau",
         (normal_inverse_gamma_linear_model, {"coef_means": torch.tensor(0.),
@@ -169,6 +172,9 @@ CASES = [
         ],
         ["nigam", "ground_truth", "re", "ab_test"]
     ),
+    #############################################################################################################
+    # Linear model, with AB testing
+    #############################################################################################################
     Case(
         "Linear regression model",
         (known_covariance_linear_model, {"coef_means": torch.tensor(0.),
@@ -243,6 +249,9 @@ CASES = [
         ],
         ["lm", "ground_truth", "no_re", "ab_test", "large_n", "large_dim_y"],
     ),
+    #############################################################################################################
+    # Sigmoid regression location finding
+    #############################################################################################################
     Case(
         "Sigmoid regression model",
         (sigmoid_model_fixed, {"coef_means": torch.tensor([1., 10.]),
@@ -288,6 +297,9 @@ CASES = [
         ],
         ["sigmoid", "re", "location"]
     ),
+    #############################################################################################################
+    # Logistic regression location finding
+    #############################################################################################################
     Case(
         "Logistic regression",
         (logistic_regression_model, {"coef_means": torch.tensor([1., 10.]),
@@ -335,8 +347,9 @@ CASES = [
         ],
         ["logistic", "re", "location"]
     ),
-
-    # Linear models with circle designs
+    #############################################################################################################
+    # Linear models with circular designs
+    #############################################################################################################
     Case(
         "Linear model with designs on S^1",
         (known_covariance_linear_model, {"coef_means": torch.tensor(0.),

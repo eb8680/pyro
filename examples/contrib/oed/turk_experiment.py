@@ -301,7 +301,7 @@ def main(num_runs, num_parallel, num_participants, num_questions, experiment_nam
     typs = ['oed', 'oed_no_re', 'rand']
     logging.info("Types: {}, num runs: {}, num_parallel: {}, "
                  "num participants: {}, num questions: {}".format(
-        typs, num_runs, num_parallel, num_participants, num_questions
+                    typs, num_runs, num_parallel, num_participants, num_questions
     ))
 
     CANDIDATE_DESIGNS = gen_design_space()
@@ -382,10 +382,10 @@ def main(num_runs, num_parallel, num_participants, num_questions, experiment_nam
                 logging.info("{} ({}):\n{}".format(name, value.shape, value[0, 0, ...]))
 
             sigmoid_response_est = SigmoidMarginalGuide(
-                (num_parallel, N_DESIGNS), "y", mu_init=marginal_mu_init, sigma_init=marginal_sigma_init
+                (num_parallel, N_DESIGNS), {"y": 1}, mu_init=marginal_mu_init, sigma_init=marginal_sigma_init
             )
             sigmoid_likelihood_est = SigmoidLikelihoodGuide(
-                (num_parallel, N_DESIGNS), {"fixed_effects": N_FEATURES, "random_effects": N_FEATURES}, "y",
+                (num_parallel, N_DESIGNS), {"fixed_effects": N_FEATURES, "random_effects": N_FEATURES}, {"y": 1},
                 mu_init=like_mu_init, sigma_init=like_sigma_init
             )
             logging.info("Marginal init values: mu_init {}, sigma_init {}".format(marginal_mu_init, marginal_sigma_init))
