@@ -413,6 +413,30 @@ CASES = [
         ],
         ["lm", "ground_truth", "no_re", "circle", "small_n"]
     ),
+    Case(
+        "Linear model with designs on S^1, targetting one parameter only",
+        (known_covariance_linear_model, {"coef_means": [torch.tensor(0.), torch.tensor(0.)],
+                                         "coef_sds": [torch.tensor([10.]), torch.tensor([2.])],
+                                         "observation_sd": torch.tensor(1.),
+                                         "coef_labels": ["w1", "w2"]}),
+        X_circle_10d_1n_2p,
+        "y",
+        "w1",
+        [
+            (nmc, {"N": 60*60, "M": 60, "M_prime": 60, "independent_priors": True}),
+            (posterior_lm,
+             {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
+              "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (marginal_re,
+             {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
+              "marginal_guide": (NormalMarginalGuide, {"mu_init": 0., "sigma_init": 3.}),
+              "cond_guide": (NormalLikelihoodGuide, {"mu_init": 0., "sigma_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (truth_lm, {})
+        ],
+        ["lm", "ground_truth", "re", "circle", "small_n"]
+    ),
 ]
 #
 # CMP_TEST_CASES = [
