@@ -189,8 +189,12 @@ def sigmoid_model_fixed(coef_means, coef_sds, observation_sd, coef_labels="w", o
             response_label=observation_label,
             k=torch.tensor(1.)
             )
-    model.w_sds = OrderedDict([(label, sd) for label, sd in zip(coef_labels, coef_sds)])
+
     model.obs_sd = observation_sd
+    model.w_sds = OrderedDict([(label, sd) for label, sd in zip(coef_labels, coef_sds)])
+    model.w_sizes = OrderedDict([(label, sd.shape[-1]) for label, sd in zip(coef_labels, coef_sds)])
+    model.observation_label = observation_label
+    model.coef_labels = coef_labels
     return model
 
 

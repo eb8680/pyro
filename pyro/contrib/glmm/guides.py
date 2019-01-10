@@ -155,12 +155,13 @@ class LogisticGuide(LinearModelGuide):
 
 class SigmoidResponseEst(nn.Module):
 
-    def __init__(self, d, observation_labels, mu_init=0., sigma_init=20., **kwargs):
+    def __init__(self, d, y_sizes, mu_init=0., sigma_init=20., **kwargs):
 
         super(SigmoidResponseEst, self).__init__()
 
-        self.mu = {l: nn.Parameter(mu_init*torch.ones(*d, 1)) for l in observation_labels}
-        self.sigma = {l: nn.Parameter(sigma_init*torch.ones(*d, 1)) for l in observation_labels}
+        assert all(d == 1 for d in y_sizes.values())
+        self.mu = {l: nn.Parameter(mu_init*torch.ones(*d, 1)) for l in y_sizes}
+        self.sigma = {l: nn.Parameter(sigma_init*torch.ones(*d, 1)) for l in y_sizes}
         self._registered_mu = nn.ParameterList(self.mu.values())
         self._registered_sigma = nn.ParameterList(self.sigma.values())
         # TODO read from torch float specs
@@ -227,9 +228,9 @@ class NormalLikelihoodEst(NormalResponseEst):
 
 class SigmoidLikelihoodEst(SigmoidResponseEst):
 
-    def __init__(self, d, w_sizes, observation_labels, mu_init=0., sigma_init=10., **kwargs):
+    def __init__(self, d, w_sizes, y_sizes, mu_init=0., sigma_init=10., **kwargs):
 
-        super(SigmoidLikelihoodEst, self).__init__(d, observation_labels, mu_init, sigma_init, **kwargs)
+        super(SigmoidLikelihoodEst, self).__init__(d, y_sizes, mu_init, sigma_init, **kwargs)
         self.log_multiplier = nn.Parameter(torch.zeros(*d, 1))
         self.w_sizes = w_sizes
 

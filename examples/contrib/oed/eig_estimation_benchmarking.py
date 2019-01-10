@@ -154,14 +154,15 @@ Estimator = namedtuple("EIGEstimator",[
     "method"
 ])
 
-truth_lm = Estimator("Ground truth", ["truth", "lm"], linear_model_ground_truth)
-truth_nigam = Estimator("Ground truth", ["truth", "nigam"], normal_inverse_gamma_ground_truth)
-nmc = Estimator("Nested Monte Carlo", ["nmc", "naive_rainforth"], naive_rainforth_eig)
-nnmc = Estimator("Non-nested Monte Carlo", ["nnmc", "accelerated_rainforth"], accelerated_rainforth_eig)
-posterior_lm = Estimator("Posterior", ["posterior", "gibbs", "ba", "lm"], ba_eig_lm)
-posterior_mc = Estimator("Posterior", ["posterior", "gibbs", "ba"], ba_eig_mc)
-marginal = Estimator("Marginal", ["marginal", "gibbs"], gibbs_y_eig)
-marginal_re = Estimator("Marginal + likelihood", ["marginal_re", "marginal_likelihood", "gibbs"], gibbs_y_re_eig)
+truth_lm = Estimator("Ground truth", ["truth", "lm", "standard"], linear_model_ground_truth)
+truth_nigam = Estimator("Ground truth", ["truth", "nigam", "standard"], normal_inverse_gamma_ground_truth)
+nmc = Estimator("Nested Monte Carlo", ["nmc", "naive_rainforth", "standard"], naive_rainforth_eig)
+nnmc = Estimator("Non-nested Monte Carlo", ["nnmc", "accelerated_rainforth", "standard"], accelerated_rainforth_eig)
+posterior_lm = Estimator("Posterior", ["posterior", "gibbs", "ba", "lm", "standard"], ba_eig_lm)
+posterior_mc = Estimator("Posterior", ["posterior", "gibbs", "ba", "standard"], ba_eig_mc)
+marginal = Estimator("Marginal", ["marginal", "gibbs", "standard"], gibbs_y_eig)
+marginal_re = Estimator("Marginal + likelihood", ["marginal_re", "marginal_likelihood", "gibbs", "standard"],
+                        gibbs_y_re_eig)
 
 Case = namedtuple("EIGBenchmarkingCase", [
     "title",
@@ -210,7 +211,7 @@ CASES = [
         [
             # Caution, Rainforth does not work correctly in this case because we must
             # compute p(psi | theta)
-            # Use LFIRE instead
+            # TODO: Use LFIRE instead
             (posterior_mc,
              {"num_samples": 10, "num_steps": 800, "final_num_samples": 500,
               "guide": (NormalInverseGammaGuide, {"mf": True, "alpha_init": 10., "b0_init": 10.,
@@ -240,18 +241,17 @@ CASES = [
               "guide": (LinearModelGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             # TODO: fix analytic entropy
-            # (posterior_lm,
+            # (Estimator("Posterior with analytic entropy", ["posterior", "gibbs", "ba", "ae"], ba_eig_lm),
             #  {"num_samples": 10, "num_steps": 1200, "final_num_samples": 50, "analytic_entropy": True,
             #   "guide": (LinearModelGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
-            #   "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})},
-            #  "Posterior with analytic entropy"),
+            #   "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (marginal,
              {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
               "guide": (NormalResponseEst, {"mu_init": 0., "sigma_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (truth_lm, {})
         ],
-        ["lm", "ground_truth", "no_re", "ab_test"]
+        ["lm", "ground_truth", "no_re", "ab_test", "small_n"]
     ),
     Case(
         "Linear model with random effects",
@@ -275,68 +275,74 @@ CASES = [
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (truth_lm, {})
         ],
-        ["lm", "re", "ab_test"]
+        ["lm", "re", "ab_test", "small_n"]
     ),
-    # T(
-    #     "Linear regression model (large n)",
-    #     basic_2p_linear_model_sds_10_0pt1,
-    #     AB_test_11d_20n_2p,
+
+    Case(
+        "Linear regression model (large dim(y))",
+        (known_covariance_linear_model, {"coef_means": torch.tensor(0.),
+                                         "coef_sds": torch.tensor([10., .1]),
+                                         "observation_sd": torch.tensor(1.)}),
+        AB_test_11d_20n_2p,
+        "y",
+        "w",
+        [
+            (nmc, {"N": 60*60, "M": 60}),
+            (posterior_lm,
+             {"num_samples": 10, "num_steps": 1000, "final_num_samples": 500,
+              "guide": (LinearModelGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (marginal,
+             {"num_samples": 10, "num_steps": 700, "final_num_samples": 500,
+              "guide": (NormalResponseEst, {"mu_init": 0., "sigma_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (truth_lm, {})
+        ],
+        ["lm", "ground_truth", "no_re", "ab_test", "large_n", "large_dim_y"],
+    ),
+    Case(
+        "Sigmoid with random effects",
+        (sigmoid_model_fixed, {"coef_means": [torch.tensor([1.]), torch.tensor([10.])],
+                               "coef_sds": [torch.tensor([.25]), torch.tensor([8.])],
+                               "observation_sd": torch.tensor(2.),
+                               "coef_labels": ["coef", "loc"]}),
+        loc_15d_1n_2p,
+        "y",
+        "loc",
+        [
+            (nmc, {"N": 50, "M": 50, "M_prime": 50, "independent_priors": True}),
+            (posterior_mc,
+             {"num_samples": 10, "num_steps": 1000, "final_num_samples": 500,
+              "guide": (SigmoidGuide, {"mu_init": 0., "scale_tril_init": 3., "tikhonov_init": -2.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (marginal_re,
+             {"num_samples": 10, "num_steps": 2000, "final_num_samples": 500,
+              "marginal_guide": (SigmoidResponseEst, {"mu_init": 0., "sigma_init": 3.}),
+              "cond_guide": (SigmoidLikelihoodEst, {"mu_init": 0., "sigma_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+        ],
+        ["sigmoid", "re", "location"]
+    ),
+    # Case(
+    #     "Sigmoid regression model",
+    #     (sigmoid_model_fixed, {"coef_means": torch.tensor([1., 10.]),
+    #                            "coef_sds": torch.tensor([.25, 8.]),
+    #                            "observation_sd": torch.tensor(2.)}),
+    #     loc_15d_1n_2p,
     #     "y",
     #     "w",
     #     [
-    #         (naive_rainforth_eig, [90*90, 90]),
-    #         (ba_eig_lm,
-    #          [10, 1000, basic_2p_ba_guide((10, 11)), optim.Adam({"lr": 0.05}),
+    #         (naive_rainforth_eig, [70*70, 70]),
+    #         (ba_eig_mc,
+    #          [10, 400, sigmoid_high_guide((10, 15)), optim.Adam({"lr": 0.05}),
     #           False, None, 500]),
     #         (gibbs_y_eig,
-    #          [10, 700, normal_response_est_20((10, 11)), optim.Adam({"lr": 0.05}),
+    #          [20, 4000, sigmoid_response_est((10, 15)), optim.Adam({"lr": 0.05}),
     #           False, None, 500]),
-    #         #(vi_eig_lm,
-    #         # [{"guide": basic_2p_guide, "optim": optim.Adam({"lr": 0.05}), "loss": elbo,
-    #         #   "num_steps": 1000}, {"num_samples": 1}]),
-    #         #(donsker_varadhan_eig,
-    #         # [400, 400, GuideDV(basic_2p_ba_guide((11,))),
-    #         #  optim.Adam({"lr": 0.05}), False, None, 500]),
-    #         (linear_model_ground_truth, []),
+    #         (naive_rainforth_eig, [300*300, 300]),
     #     ]
     # ),
 ]
-#     T(
-#         "Sigmoid with random effects",
-#         sigmoid_re_model,
-#         loc_15d_1n_2p,
-#         "y",
-#         "loc",
-#         [
-#             #(naive_rainforth_eig, [300*300, 300, 300, True]),
-#             (naive_rainforth_eig, [50*50, 50, 50, True]),
-#             (gibbs_y_re_eig,
-#              [10, 3000, sigmoid_response_est((10, 15)), sigmoid_likelihood_est((10, 15)),
-#               optim.Adam({"lr": 0.05}), False, None, 500]),
-#             (ba_eig_mc,
-#              [10, 1500, sigmoid_random_effect_guide((10, 15)), optim.Adam({"lr": 0.05}),
-#               False, None, 500]),
-#             (naive_rainforth_eig, [150*150, 150, 150, True]),
-#         ]
-#     ),
-#     T(
-#         "Sigmoid regression model",
-#         sigmoid_2p_model,
-#         loc_15d_1n_2p,
-#         "y",
-#         "w",
-#         [
-#             (naive_rainforth_eig, [70*70, 70]),
-#             (ba_eig_mc,
-#              [10, 400, sigmoid_high_guide((10, 15)), optim.Adam({"lr": 0.05}),
-#               False, None, 500]),
-#             (gibbs_y_eig,
-#              [20, 4000, sigmoid_response_est((10, 15)), optim.Adam({"lr": 0.05}),
-#               False, None, 500]),
-#             (naive_rainforth_eig, [300*300, 300]),
-#         ]
-#     ),
-# ]
 #
 # CMP_TEST_CASES = [
 #     T(
@@ -650,6 +656,10 @@ def main(case_tags, estimator_tags, num_runs, num_parallel, experiment_name):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="EIG estimation benchmarking")
+    # Note: for case-tags, we take the intersection of matching cases; for estimator-tags we take the union of matching
+    # estimators
+    # In both cases, blank = all
+    # This may seem weird, but it corresponds best to common usage
     parser.add_argument("--case-tags", nargs="?", default="*", type=str)
     parser.add_argument("--estimator-tags", nargs="?", default="*", type=str)
     parser.add_argument("--num-runs", nargs="?", default=1, type=int)
