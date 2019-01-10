@@ -391,6 +391,28 @@ CASES = [
         ],
         ["logistic", "re", "location"]
     ),
+    Case(
+        "Linear model with designs on S^1",
+        (known_covariance_linear_model, {"coef_means": torch.tensor(0.),
+                                         "coef_sds": torch.tensor([10., 2.]),
+                                         "observation_sd": torch.tensor(1.)}),
+        X_circle_10d_1n_2p,
+        "y",
+        "w",
+        [
+            (nmc, {"N": 60*60, "M": 60}),
+            (posterior_lm,
+             {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
+              "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (marginal,
+             {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
+              "guide": (NormalMarginalGuide, {"mu_init": 0., "sigma_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (truth_lm, {})
+        ],
+        ["lm", "ground_truth", "no_re", "circle", "small_n"]
+    ),
 ]
 #
 # CMP_TEST_CASES = [
@@ -526,26 +548,7 @@ CASES = [
 #               False, None, 500])
 #         ]
 #     ),
-#     T(
-#         "Linear model with designs on S^1",
-#         basic_2p_linear_model_sds_10_2pt5,
-#         X_circle_10d_1n_2p,
-#         "y",
-#         "w",
-#         [
-#             (linear_model_ground_truth, []),
-#             (naive_rainforth_eig, [2000, 2000]),
-#             (vi_eig_lm,
-#              [{"guide": basic_2p_guide, "optim": optim.Adam({"lr": 0.05}), "loss": elbo,
-#                "num_steps": 1000}, {"num_samples": 1}]),
-#             (donsker_varadhan_eig,
-#              [400, 400, GuideDV(basic_2p_ba_guide((10,))),
-#               optim.Adam({"lr": 0.05}), False, None, 500]),
-#             (ba_eig_lm,
-#              [20, 400, basic_2p_ba_guide((10,)), optim.Adam({"lr": 0.05}),
-#               False, None, 500])
-#         ]
-#     ),
+
 # ]
 #
 #
