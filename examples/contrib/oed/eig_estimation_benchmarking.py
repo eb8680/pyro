@@ -312,8 +312,8 @@ CASES = [
         [
             (nmc, {"N": 50, "M": 50, "M_prime": 50, "independent_priors": True}),
             (posterior_mc,
-             {"num_samples": 10, "num_steps": 1000, "final_num_samples": 500,
-              "guide": (SigmoidGuide, {"mu_init": 0., "scale_tril_init": 3., "tikhonov_init": -2.}),
+             {"num_samples": 10, "num_steps": 1500, "final_num_samples": 500,
+              "guide": (SigmoidGuide, {"mu_init": 0., "scale_tril_init": 20., "tikhonov_init": -2.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (marginal_re,
              {"num_samples": 10, "num_steps": 2000, "final_num_samples": 500,

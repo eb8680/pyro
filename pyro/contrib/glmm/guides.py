@@ -6,7 +6,7 @@ from torch import nn
 import pyro
 import pyro.distributions as dist
 from pyro import poutine
-from pyro.contrib.util import get_indices, tensor_to_dict, rmv, rvv, rtril, rdiag
+from pyro.contrib.util import get_indices, tensor_to_dict, rmv, rvv, rtril, rdiag, lexpand, rexpand
 from pyro.ops.linalg import rinverse
 from pyro.util import is_bad
 
@@ -19,7 +19,7 @@ class LinearModelGuide(nn.Module):
         Amortisation over data is taken care of by analytic formulae for
         linear models (heavy use of truth).
 
-        :param int d: the number of designs
+        :param tuple d: the number of designs
         :param dict w_sizes: map from variable string names to int.
         :param float tikhonov_init: initial value for `tikhonov_diag` parameter.
         :param float scale_tril_init: initial value for `scale_tril` parameter.
@@ -32,7 +32,7 @@ class LinearModelGuide(nn.Module):
                 tikhonov_init*torch.ones(*d, sum(w_sizes.values())))
         self.scaled_prior_mean = nn.Parameter(torch.zeros(*d, sum(w_sizes.values())))
         self.scale_tril = {l: nn.Parameter(
-                scale_tril_init*torch.ones(*d, p, p)) for l, p in w_sizes.items()}
+                scale_tril_init*lexpand(torch.eye(p), *d)) for l, p in w_sizes.items()}
         # This registers the dict values in pytorch
         # Await new version to use nn.ParamterDict
         self._registered = nn.ParameterList(self.scale_tril.values())
@@ -59,7 +59,7 @@ class LinearModelGuide(nn.Module):
 
     def forward(self, y_dict, design, observation_labels, target_labels):
 
-        pyro.module("ba_guide", self)
+        pyro.module("posterior_guide", self)
 
         # Returns two dicts from labels -> tensors
         mu, scale_tril = self.get_params(y_dict, design, target_labels)
@@ -83,32 +83,34 @@ class SigmoidGuide(LinearModelGuide):
         self._registered_mu1 = nn.ParameterList(self.mu1.values())
 
         self.scale_tril0 = {l: nn.Parameter(
-                scale_tril_init*torch.ones(*d, p, p)) for l, p in w_sizes.items()}
+                scale_tril_init*lexpand(torch.eye(p), *d)) for l, p in w_sizes.items()}
         self._registered0 = nn.ParameterList(self.scale_tril0.values())
 
         self.scale_tril1 = {l: nn.Parameter(
-                scale_tril_init*torch.ones(*d, p, p)) for l, p in w_sizes.items()}
+                scale_tril_init*lexpand(torch.eye(p), *d)) for l, p in w_sizes.items()}
         self._registered1 = nn.ParameterList(self.scale_tril1.values())
+
+        # TODO read from torch float specs
+        self.epsilon = torch.tensor(2 ** -24)
 
     def get_params(self, y_dict, design, target_labels):
 
         # For values in (0, 1), we can perfectly invert the transformation
         y = torch.cat(list(y_dict.values()), dim=-1)
-        mask0 = (y < 1e-35).squeeze(-1)
-        mask1 = (1.-y < 1e-35).squeeze(-1)
-        y, y1m = y.clamp(1e-35, 1), (1.-y).clamp(1e-35, 1)
-        logited = y.log() - y1m.log()
-        y_trans = logited
+        mask0 = (y <= self.epsilon).squeeze(-1)
+        mask1 = (1. - y <= self.epsilon).squeeze(-1)
+        y_trans = y.log() - (1.-y).log()
 
         mu, scale_tril = self.linear_model_formula(y_trans, design, target_labels)
         scale_tril = {l: scale_tril[l].expand(mu[l].shape + (mu[l].shape[-1], )) for l in scale_tril}
 
-        # Now deal with clipping- values equal to 0 or 1
         for l in mu.keys():
             mu[l][mask0, :] = self.mu0[l].expand(mu[l].shape)[mask0, :]
             mu[l][mask1, :] = self.mu1[l].expand(mu[l].shape)[mask1, :]
-            scale_tril[l][mask0, :, :] = rtril(self.scale_tril0[l].expand(scale_tril[l].shape))[mask0, :, :]
-            scale_tril[l][mask1, :, :] = rtril(self.scale_tril1[l].expand(scale_tril[l].shape))[mask1, :, :]
+            scale_tril[l] = scale_tril[l] - scale_tril[l] * rexpand(mask0.float(), 1, 1)
+            scale_tril[l] = scale_tril[l] + self.scale_tril0[l] * rexpand(mask0.float(), 1, 1)
+            scale_tril[l] = scale_tril[l] - scale_tril[l] * rexpand(mask1.float(), 1, 1)
+            scale_tril[l] = scale_tril[l] + self.scale_tril1[l] * rexpand(mask1.float(), 1, 1)
 
         return mu, scale_tril
 
@@ -127,11 +129,11 @@ class LogisticGuide(LinearModelGuide):
         self._registered_mu1 = nn.ParameterList(self.mu1.values())
 
         self.scale_tril0 = {l: nn.Parameter(
-                scale_tril_init*torch.ones(*d, p, p)) for l, p in w_sizes.items()}
+                scale_tril_init*lexpand(torch.eye(p), *d)) for l, p in w_sizes.items()}
         self._registered0 = nn.ParameterList(self.scale_tril0.values())
 
         self.scale_tril1 = {l: nn.Parameter(
-                scale_tril_init*torch.ones(*d, p, p)) for l, p in w_sizes.items()}
+                scale_tril_init*lexpand(torch.eye(p), *d)) for l, p in w_sizes.items()}
         self._registered1 = nn.ParameterList(self.scale_tril1.values())
 
     def get_params(self, y_dict, design, target_labels):
@@ -149,7 +151,7 @@ class LogisticGuide(LinearModelGuide):
             mu[l][mask1, :] = self.mu1[l].expand(mu[l].shape)[mask1, :]
             scale_tril[l][mask0, :, :] = rtril(self.scale_tril0[l].expand(scale_tril[l].shape))[mask0, :, :]
             scale_tril[l][mask1, :, :] = rtril(self.scale_tril1[l].expand(scale_tril[l].shape))[mask1, :, :]
-        
+
         return mu, scale_tril
 
 
@@ -170,7 +172,7 @@ class SigmoidResponseEst(nn.Module):
 
     def forward(self, design, observation_labels, target_labels):
 
-        pyro.module("gibbs_y_guide", self)
+        pyro.module("marginal_guide", self)
 
         for l in observation_labels:
             if is_bad(self.mu[l]):
@@ -194,13 +196,13 @@ class NormalResponseEst(nn.Module):
         super(NormalResponseEst, self).__init__()
 
         self.mu = {l: nn.Parameter(mu_init*torch.ones(*d, p)) for l, p in y_sizes.items()}
-        self.scale_tril = {l: nn.Parameter(sigma_init*torch.ones(*d, p, p)) for l, p in y_sizes.items()}
+        self.scale_tril = {l: nn.Parameter(sigma_init*lexpand(torch.eye(p), *d)) for l, p in y_sizes.items()}
         self._registered_mu = nn.ParameterList(self.mu.values())
         self._registered_scale_tril = nn.ParameterList(self.scale_tril.values())
 
     def forward(self, design, observation_labels, target_labels):
 
-        pyro.module("gibbs_y_guide", self)
+        pyro.module("marginal_guide", self)
 
         for l in observation_labels:
             pyro.sample(l, dist.MultivariateNormal(self.mu[l], scale_tril=rtril(self.scale_tril[l])))
@@ -220,7 +222,7 @@ class NormalLikelihoodEst(NormalResponseEst):
         subdesign = design[..., indices]
         centre = rmv(subdesign, theta)
 
-        pyro.module("gibbs_y_re_guide", self)
+        pyro.module("likelihood_guide", self)
 
         for l in observation_labels:
             pyro.sample(l, dist.MultivariateNormal(centre + self.mu[l], scale_tril=rtril(self.scale_tril[l])))
@@ -242,7 +244,7 @@ class SigmoidLikelihoodEst(SigmoidResponseEst):
         centre = rmv(subdesign, theta)
         scaled_centre = torch.exp(self.log_multiplier)*centre
 
-        pyro.module("gibbs_y_re_guide", self)
+        pyro.module("likelihood_guide", self)
 
         for l in observation_labels:
             if is_bad(self.mu[l]):
@@ -264,7 +266,7 @@ class LogisticResponseEst(nn.Module):
     
     def forward(self, design, observation_labels, target_labels):
 
-        pyro.module("gibbs_y_guide", self)
+        pyro.module("marginal_guide", self)
 
         for l in observation_labels:
             y_dist = dist.Bernoulli(logits=self.logits[l]).independent(1)
@@ -292,7 +294,7 @@ class LogisticLikelihoodEst(nn.Module):
         subdesign = design[..., indices]
         centre = rmv(subdesign, theta)
 
-        pyro.module("gibbs_y_re_guide", self)
+        pyro.module("likelihood_guide", self)
 
         for l in observation_labels:
             p = .5*(self.sigmoid(centre + self.logit_offset[l] + self.softplus(self.logit_correction[l]))
@@ -327,7 +329,7 @@ class NormalInverseGammaGuide(LinearModelGuide):
 
     def forward(self, y_dict, design, observation_labels, target_labels):
 
-        pyro.module("ba_guide", self)
+        pyro.module("posterior_guide", self)
 
         mu, scale_tril, alpha, beta = self.get_params(y_dict, design, target_labels)
 
