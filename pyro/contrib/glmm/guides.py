@@ -90,7 +90,6 @@ class SigmoidGuide(LinearModelGuide):
                 scale_tril_init*torch.ones(*d, p, p)) for l, p in w_sizes.items()}
         self._registered1 = nn.ParameterList(self.scale_tril1.values())
 
-
     def get_params(self, y_dict, design, target_labels):
 
         # For values in (0, 1), we can perfectly invert the transformation
@@ -134,7 +133,6 @@ class LogisticGuide(LinearModelGuide):
         self.scale_tril1 = {l: nn.Parameter(
                 scale_tril_init*torch.ones(*d, p, p)) for l, p in w_sizes.items()}
         self._registered1 = nn.ParameterList(self.scale_tril1.values())
-
 
     def get_params(self, y_dict, design, target_labels):
 

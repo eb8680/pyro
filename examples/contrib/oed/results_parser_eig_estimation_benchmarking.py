@@ -63,7 +63,7 @@ def main(fnames, findices, plot):
                 x = np.arange(0, centre.shape[0])
                 plt.plot(x, centre, linestyle='-', markersize=6, color=COLOURS[i], marker='o')
                 plt.fill_between(x, upper, lower, color=COLOURS[i]+[.2])
-            # plt.title(value_label, fontsize=18)
+            plt.title(case, fontsize=18)
             plt.legend(d.keys(), loc=1, fontsize=16)
             plt.xlabel("Step", fontsize=18)
             plt.ylabel("EIG", fontsize=18)

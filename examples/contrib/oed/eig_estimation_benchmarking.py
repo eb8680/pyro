@@ -35,36 +35,37 @@ from pyro.contrib.glmm.guides import (
 """
 Expected information gain estimation benchmarking
 -------------------------------------------------
-Models for benchmarking:
+Dials to turn:
+- the model
+- the design space
+- which parameters to consider as targets
 
-- A/B test: linear model with known variances and a discrete design on {0, ..., 10}
-- linear model: classical linear model with designs on unit circle
-- linear model with two parameter groups, aiming to learn just one
-- A/B test with unknown observation covariance:
-  - aim to learn regression coefficients *and* obs_sd
-  - aim to learn regression coefficients, information on obs_sd ignored
-- sigmoid model
-- logistic regression*
-- LMER with normal response and known obs_sd:*
-  - aim to learn all unknowns: w, u and G_u*
-  - aim to learn w*
-  - aim to learn u*
-- logistic-LMER*
+Models:
+- linear model
+- normal-inverse gamma model
+- linear mixed effects
+- logistic regression
+- sigmoid regression
 
-* to do
+Designs:
+- A/B test
+- location finding
 
 Estimation techniques:
+    Core
+    - analytic EIG (where available)
+    - Nested Monte Carlo
+    - Posterior
+    - Marginal / marginal + likelihood
 
-- analytic EIG, for linear models with known variances
-- iterated variational inference with entropy
-- naive Rainforth (nested Monte Carlo)
-- Donsker-Varadhan
-- Barber-Agakov
+    Old / deprecated
+    - iterated variational inference
+    - Donsker-Varadhan
 
-TODO:
+    TODO
+    - Laplace approximation
+    - LFIRE
 
-- better guides- allow different levels of amortization
-- SVI with BA-style guides
 """
 
 #########################################################################################
@@ -171,7 +172,6 @@ Case = namedtuple("EIGBenchmarkingCase", [
     "estimator_argslist",
     "tags"
 ])
-
 
 CASES = [
     Case(
@@ -599,7 +599,8 @@ def main(case_tags, estimator_tags, num_runs, num_parallel, experiment_name):
                 estimator_name = estimator.name
             if ("*" in estimator_tags) or ("all" in estimator_tags) or any(tag in estimator.tags for tag in estimator_tags):
                 for run in range(1, num_runs+1):
-                    print("Case", case.title, "| Estimator", estimator_name)
+                    pyro.clear_param_store()
+                    print(case.title, "|", estimator_name)
 
                     # Handles the parallelization
                     if "truth" not in estimator.tags:
