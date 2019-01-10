@@ -303,11 +303,11 @@ class SigmoidLikelihoodGuide(SigmoidMarginalGuide):
 
 class LogisticMarginalGuide(nn.Module):
     
-    def __init__(self, d, observation_labels, p_logit_init=0., **kwargs):
+    def __init__(self, d, y_sizes, p_logit_init=0., **kwargs):
 
         super(LogisticMarginalGuide, self).__init__()
 
-        self.logits = {l: nn.Parameter(p_logit_init*torch.ones(*d, 1)) for l in observation_labels}
+        self.logits = {l: nn.Parameter(p_logit_init*torch.ones(*d, 1)) for l in y_sizes}
         self._registered = nn.ParameterList(self.logits.values())
 
     def forward(self, design, observation_labels, target_labels):
@@ -321,14 +321,15 @@ class LogisticMarginalGuide(nn.Module):
 
 class LogisticLikelihoodGuide(nn.Module):
     
-    def __init__(self, d, w_sizes, observation_labels, p_logit_init=0., **kwargs):
+    def __init__(self, d, w_sizes, y_sizes, p_logit_init=0., **kwargs):
 
         super(LogisticLikelihoodGuide, self).__init__()
 
-        self.logit_correction = {l: nn.Parameter(p_logit_init*torch.ones(*d, 1)) for l in observation_labels}
-        self.logit_offset = {l: nn.Parameter(torch.zeros(*d, 1)) for l in observation_labels}
+        self.logit_correction = {l: nn.Parameter(p_logit_init*torch.ones(*d, 1)) for l in y_sizes}
+        self.logit_offset = {l: nn.Parameter(torch.zeros(*d, 1)) for l in y_sizes}
         self._registered_correction = nn.ParameterList(self.logit_correction.values())
         self._registered_offset = nn.ParameterList(self.logit_offset.values())
+        self.log_multiplier = nn.Parameter(torch.zeros(*d, 1))
         self.w_sizes = w_sizes
         self.sigmoid = nn.Sigmoid()
         self.softplus = nn.Softplus()
@@ -339,12 +340,13 @@ class LogisticLikelihoodGuide(nn.Module):
         indices = get_indices(target_labels, self.w_sizes)
         subdesign = design[..., indices]
         centre = rmv(subdesign, theta)
+        scaled_centre = torch.exp(self.log_multiplier) * centre
 
         pyro.module("likelihood_guide", self)
 
         for l in observation_labels:
-            p = .5*(self.sigmoid(centre + self.logit_offset[l] + self.softplus(self.logit_correction[l]))
-                    + self.sigmoid(centre + self.logit_offset[l] - self.softplus(self.logit_correction[l])))
+            p = .5*(self.sigmoid(scaled_centre + self.logit_offset[l] + self.softplus(self.logit_correction[l]))
+                    + self.sigmoid(scaled_centre + self.logit_offset[l] - self.softplus(self.logit_correction[l])))
             y_dist = dist.Bernoulli(p).independent(1)
             pyro.sample(l, y_dist)
 

@@ -121,12 +121,18 @@ def logistic_regression_model(coef_means, coef_sds, coef_labels="w", observation
     if not isinstance(coef_labels, list):
         coef_labels = [coef_labels]
 
-    return partial(bayesian_linear_model,
-                   w_means=OrderedDict([(label, mean) for label, mean in zip(coef_labels, coef_means)]),
-                   w_sqrtlambdas=OrderedDict([(label, 1./sd) for label, sd in zip(coef_labels, coef_sds)]),
-                   obs_sd=torch.tensor(1.),
-                   response="bernoulli",
-                   response_label=observation_label)
+    model = partial(bayesian_linear_model,
+                    w_means=OrderedDict([(label, mean) for label, mean in zip(coef_labels, coef_means)]),
+                    w_sqrtlambdas=OrderedDict([(label, 1./sd) for label, sd in zip(coef_labels, coef_sds)]),
+                    obs_sd=torch.tensor(1.),
+                    response="bernoulli",
+                    response_label=observation_label)
+
+    model.w_sds = OrderedDict([(label, sd) for label, sd in zip(coef_labels, coef_sds)])
+    model.w_sizes = OrderedDict([(label, sd.shape[-1]) for label, sd in zip(coef_labels, coef_sds)])
+    model.observation_label = observation_label
+    model.coef_labels = coef_labels
+    return model
 
 
 def lmer_model(fixed_effects_sd, n_groups, random_effects_alpha, random_effects_beta,

@@ -344,6 +344,53 @@ CASES = [
         ],
         ["sigmoid", "re", "location"]
     ),
+    Case(
+        "Logistic regression",
+        (logistic_regression_model, {"coef_means": torch.tensor([1., 10.]),
+                                     "coef_sds": torch.tensor([.25, 8.])}),
+        loc_15d_1n_2p,
+        "y",
+        "w",
+        [
+            (nnmc, {"N": 2000, "yspace": {"y": torch.tensor([0., 1.])}}),
+            (posterior_mc,
+             {"num_samples": 10, "num_steps": 800, "final_num_samples": 500,
+              "guide": (LogisticPosteriorGuide, {"mu_init": 0.,
+                                                 "scale_tril_init": torch.tensor([[1., 0.], [0., 20.]])}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}
+             ),
+            (marginal,
+             {"num_samples": 10, "num_steps": 500, "final_num_samples": 500,
+              "guide": (LogisticMarginalGuide, {"p_logit_init": 0.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}
+             )
+        ],
+        ["logistic", "no_re", "location"]
+    ),
+    Case(
+        "Logistic with random effects",
+        (logistic_regression_model, {"coef_means": [torch.tensor([1.]), torch.tensor([10.])],
+                                     "coef_sds": [torch.tensor([.25]), torch.tensor([8.])],
+                                     "coef_labels": ["coef", "loc"]}),
+        loc_15d_1n_2p,
+        "y",
+        "loc",
+        [
+            (nnmc, {"N": 200, "M_prime": 200, "yspace": {"y": torch.tensor([0., 1.])}}),
+            (posterior_mc,
+             {"num_samples": 10, "num_steps": 800, "final_num_samples": 500,
+              "guide": (LogisticPosteriorGuide, {"mu_init": 0., "scale_tril_init": 20.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}
+             ),
+            (marginal_re,
+             {"num_samples": 10, "num_steps": 1000, "final_num_samples": 500,
+              "marginal_guide": (LogisticMarginalGuide, {"p_logit_init": 0.}),
+              "cond_guide": (LogisticLikelihoodGuide, {"p_logit_init": 0.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}
+             )
+        ],
+        ["logistic", "re", "location"]
+    ),
 ]
 #
 # CMP_TEST_CASES = [
@@ -396,41 +443,6 @@ CASES = [
 #              [10, 400, sigmoid_random_effect_guide((10, 15)), optim.Adam({"lr": 0.05}),
 #               False, None, 500]),
 #             (naive_rainforth_eig, [60*60, 60, 60, True])
-#         ]
-#     ),
-#     T(
-#         "Logistic with random effects",
-#         logistic_random_effects,
-#         loc_15d_1n_2p,
-#         "y",
-#         "loc",
-#         [
-#             (accelerated_rainforth_eig, [{"y": torch.tensor([0., 1.])}, 100, 100]),
-#             (gibbs_y_re_eig,
-#              [40, 1200, logistic_response_est((15,)), logistic_likelihood_est((15,)),
-#               optim.Adam({"lr": 0.05}), False, None, 500]),
-#             (ba_eig_mc,
-#              [40, 800, logistic_random_effect_guide((15,)), optim.Adam({"lr": 0.05}),
-#               False, None, 500]),
-#         ]
-#     ),
-#     T(
-#         "Logistic regression",
-#         logistic_2p_model,
-#         loc_15d_1n_2p,
-#         "y",
-#         "w1",
-#         [
-#             (accelerated_rainforth_eig, [{"y": torch.tensor([0., 1.])}, 2000]),
-#             (gibbs_y_eig,
-#              [40, 400, logistic_response_est((15,)), optim.Adam({"lr": 0.05}),
-#               False, None, 500]),
-#             (ba_eig_mc,
-#              [40, 800, logistic_guide((15,)), optim.Adam({"lr": 0.05}),
-#               False, None, 500]),
-#             # (donsker_varadhan_eig,
-#             # [400, 400, GuideDV(logistic_guide(15)),
-#             #  optim.Adam({"lr": 0.05}), False, None, 500]),
 #         ]
 #     ),
 #     T(
