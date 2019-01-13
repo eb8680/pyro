@@ -158,12 +158,13 @@ class LogisticPosteriorGuide(LinearModelPosteriorGuide):
 
 class NormalInverseGammaPosteriorGuide(LinearModelPosteriorGuide):
 
-    def __init__(self, d, w_sizes, mf=False, tau_label="tau", alpha_init=10.,
+    def __init__(self, d, w_sizes, mf=False, correct_gamma=False, tau_label="tau", alpha_init=10.,
                  b0_init=10., **kwargs):
         super(NormalInverseGammaPosteriorGuide, self).__init__(d, w_sizes, **kwargs)
         self.alpha = nn.Parameter(alpha_init*torch.ones(*d))
         self.b0 = nn.Parameter(b0_init*torch.ones(*d))
         self.mf = mf
+        self.correct_gamma = correct_gamma
         self.tau_label = tau_label
 
     def get_params(self, y_dict, design, target_labels):
@@ -172,11 +173,15 @@ class NormalInverseGammaPosteriorGuide(LinearModelPosteriorGuide):
 
         coefficient_labels = [label for label in target_labels if label != self.tau_label]
         mu, scale_tril = self.linear_model_formula(y, design, coefficient_labels)
-        mu_vec = torch.cat(list(mu.values()), dim=-1)
 
-        yty = rvv(y, y)
-        ytxmu = rvv(y, rmv(design, mu_vec))
-        beta = self.b0 + .5*(yty - ytxmu)
+        if self.correct_gamma:
+            mu_vec = torch.cat(list(mu.values()), dim=-1)
+            yty = rvv(y, y)
+            ytxmu = rvv(y, rmv(design, mu_vec))
+            beta = self.b0 + .5*(yty - ytxmu)
+        else:
+            # Treat beta as a constant
+            beta = self.b0
 
         return mu, scale_tril, self.alpha, beta
 
