@@ -159,9 +159,8 @@ CASES = [
             # compute p(psi | theta)
             # TODO: Use LFIRE instead
             (posterior_mc,
-             {"num_samples": 10, "num_steps": 800, "final_num_samples": 500,
-              "guide": (NormalInverseGammaPosteriorGuide, {"mf": True, "alpha_init": 10., "b0_init": 10.,
-                                                           "tikhonov_init": -2., "scale_tril_init": 3.}),
+             {"num_samples": 10, "num_steps": 1000, "final_num_samples": 500,
+              "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (marginal_re,
              {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
