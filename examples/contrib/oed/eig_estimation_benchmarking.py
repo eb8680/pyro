@@ -13,7 +13,7 @@ from pyro import optim
 from pyro.infer import TraceEnum_ELBO
 from pyro.contrib.oed.eig import (
     vi_ape, naive_rainforth_eig, accelerated_rainforth_eig, donsker_varadhan_eig, gibbs_y_eig,
-    gibbs_y_re_eig
+    gibbs_y_re_eig, iwae_eig
 )
 from pyro.contrib.util import lexpand
 from pyro.contrib.oed.util import (
@@ -106,6 +106,7 @@ posterior_mc = Estimator("Posterior", ["posterior", "gibbs", "ba", "standard"], 
 marginal = Estimator("Marginal", ["marginal", "gibbs", "standard"], gibbs_y_eig)
 marginal_re = Estimator("Marginal + likelihood", ["marginal_re", "marginal_likelihood", "gibbs", "standard"],
                         gibbs_y_re_eig)
+iwae = Estimator("IWAE", ["iwae"], iwae_eig)
 
 Case = namedtuple("EIGBenchmarkingCase", [
     "title",
@@ -134,6 +135,12 @@ CASES = [
             (nmc, {"N": 60*60, "M": 60}),
             (posterior_mc,
              {"num_samples": 10, "num_steps": 800, "final_num_samples": 500,
+              "guide": (NormalInverseGammaPosteriorGuide, {"mf": True, "correct_gamma": False, "alpha_init": 10.,
+                                                           "b0_init": 10., "tikhonov_init": -2.,
+                                                           "scale_tril_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (iwae,
+             {"num_samples": 10, "num_steps": 800, "final_num_samples": 500, "M": 1,
               "guide": (NormalInverseGammaPosteriorGuide, {"mf": True, "correct_gamma": False, "alpha_init": 10.,
                                                            "b0_init": 10., "tikhonov_init": -2.,
                                                            "scale_tril_init": 3.}),
@@ -194,6 +201,10 @@ CASES = [
             #  {"num_samples": 10, "num_steps": 1200, "final_num_samples": 50, "analytic_entropy": True,
             #   "guide": (LinearModelGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
             #   "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (iwae,
+             {"num_samples": 10, "num_steps": 800, "final_num_samples": 500, "M": 1,
+              "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (marginal,
              {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
               "guide": (NormalMarginalGuide, {"mu_init": 0., "sigma_init": 3.}),
@@ -241,6 +252,10 @@ CASES = [
              {"num_samples": 10, "num_steps": 1000, "final_num_samples": 500,
               "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (iwae,
+             {"num_samples": 10, "num_steps": 800, "final_num_samples": 500, "M": 1,
+              "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (marginal,
              {"num_samples": 10, "num_steps": 700, "final_num_samples": 500,
               "guide": (NormalMarginalGuide, {"mu_init": 0., "sigma_init": 3.}),
@@ -264,6 +279,12 @@ CASES = [
             (nmc, {"N": 50, "M": 50}),
             (posterior_mc,
              {"num_samples": 10, "num_steps": 1500, "final_num_samples": 500,
+              "guide": (SigmoidPosteriorGuide, {"mu_init": 0., "scale_tril_init": torch.tensor([[1., 0.], [0., 20.]]),
+                                                "tikhonov_init": -2.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            # TODO why is iwae performance here worse than NMC? Must be a badly chosen posterior
+            (iwae,
+             {"num_samples": 10, "num_steps": 800, "final_num_samples": 500, "M": 1,
               "guide": (SigmoidPosteriorGuide, {"mu_init": 0., "scale_tril_init": torch.tensor([[1., 0.], [0., 20.]]),
                                                 "tikhonov_init": -2.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
@@ -315,6 +336,12 @@ CASES = [
                                                  "scale_tril_init": torch.tensor([[1., 0.], [0., 20.]])}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}
              ),
+            # Do not apply here- not a direct competitor to NNMC
+            # (iwae,
+            #  {"num_samples": 10, "num_steps": 800, "final_num_samples": 500, "M": 1,
+            #   "guide": (LogisticPosteriorGuide, {"mu_init": 0.,
+            #                                      "scale_tril_init": torch.tensor([[1., 0.], [0., 20.]])}),
+            #   "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (marginal,
              {"num_samples": 10, "num_steps": 500, "final_num_samples": 500,
               "guide": (LogisticMarginalGuide, {"p_logit_init": 0.}),
@@ -362,6 +389,10 @@ CASES = [
             (nmc, {"N": 60*60, "M": 60}),
             (posterior_lm,
              {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
+              "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (iwae,
+             {"num_samples": 10, "num_steps": 800, "final_num_samples": 500, "M": 1,
               "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (marginal,

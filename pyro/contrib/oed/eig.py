@@ -376,6 +376,18 @@ def elbo_learn(model, design, observation_labels, target_labels,
     return opt_eig_ape_loss(design, loss, num_samples, num_steps, optim)
 
 
+def iwae_eig(model, design, observation_labels, target_labels,
+             num_samples, M, num_steps, guide, optim, return_history=False,
+             final_design=None, final_num_samples=None):
+    if isinstance(observation_labels, str):
+        observation_labels = [observation_labels]
+    if isinstance(target_labels, str):
+        target_labels = [target_labels]
+    loss = iwae_eig_loss(model, guide, observation_labels, target_labels, M)
+    return opt_eig_ape_loss(design, loss, num_samples, num_steps, optim, return_history,
+                            final_design, final_num_samples)
+
+
 def opt_eig_ape_loss(design, loss_fn, num_samples, num_steps, optim, return_history=False,
                      final_design=None, final_num_samples=None):
 
@@ -561,12 +573,12 @@ def elbo(model, guide, data, observation_labels, target_labels):
 
         # Sample from q(theta)
         trace = poutine.trace(guide).get_trace(expanded_design)
-        theta_dict = {l: trace.nodes[l]["value"] for l in target_labels}
-        theta_dict.update(y_dict)
+        theta_y_dict = {l: trace.nodes[l]["value"] for l in target_labels}
+        theta_y_dict.update(y_dict)
         trace.compute_log_prob()
 
         # Run through p(theta)
-        modelp = pyro.condition(model, data=theta_dict)
+        modelp = pyro.condition(model, data=theta_y_dict)
         model_trace = poutine.trace(modelp).get_trace(expanded_design)
         model_trace.compute_log_prob()
 
@@ -578,6 +590,49 @@ def elbo(model, guide, data, observation_labels, target_labels):
         nonnan = (~mask).sum(0).float()
         terms[mask] = 0.
         loss = terms.sum(0)/nonnan
+        agg_loss = loss.sum()
+        return agg_loss, loss
+
+    return loss_fn
+
+
+def iwae_eig_loss(model, guide, observation_labels, target_labels, M):
+
+    def loss_fn(design, num_particles, evaluation=False, **kwargs):
+
+        expanded_design = lexpand(design, num_particles)
+
+        # Sample from p(y, theta | d)
+        trace = poutine.trace(model).get_trace(expanded_design)
+        y_dict = {l: lexpand(trace.nodes[l]["value"], M) for l in observation_labels}
+
+        # Sample M times from q(theta | y, d) for each y
+        reexpanded_design = lexpand(expanded_design, M)
+        conditional_guide = pyro.condition(guide, data=y_dict)
+        guide_trace = poutine.trace(conditional_guide).get_trace(
+            y_dict, reexpanded_design, observation_labels, target_labels)
+        theta_y_dict = {l: guide_trace.nodes[l]["value"] for l in target_labels}
+        theta_y_dict.update(y_dict)
+        guide_trace.compute_log_prob()
+
+        # Re-run that through the model to compute the joint
+        modelp = pyro.condition(model, data=theta_y_dict)
+        model_trace = poutine.trace(modelp).get_trace(reexpanded_design)
+        model_trace.compute_log_prob()
+
+        terms = sum(guide_trace.nodes[l]["log_prob"] for l in target_labels).sum(0)/M
+        terms -= sum(model_trace.nodes[l]["log_prob"] for l in target_labels).sum(0)/M
+        terms -= sum(model_trace.nodes[l]["log_prob"] for l in observation_labels).sum(0)/M
+
+        # At eval time, add p(y | theta, d) terms
+        if evaluation:
+            trace.compute_log_prob()
+            terms += sum(trace.nodes[l]["log_prob"] for l in observation_labels)
+
+        mask = torch.isnan(terms) | (terms == float('-inf')) | (terms == float('inf'))
+        nonnan = (~mask).sum(0).float()
+        terms[mask] = 0.
+        loss = terms.sum(0) / nonnan
         agg_loss = loss.sum()
         return agg_loss, loss
 
