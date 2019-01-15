@@ -105,12 +105,10 @@ class SigmoidPosteriorGuide(LinearModelPosteriorGuide):
         scale_tril = {l: scale_tril[l].expand(mu[l].shape + (mu[l].shape[-1], )) for l in scale_tril}
 
         for l in mu.keys():
-            mu[l][mask0, :] = self.mu0[l].expand(mu[l].shape)[mask0, :]
-            mu[l][mask1, :] = self.mu1[l].expand(mu[l].shape)[mask1, :]
-            scale_tril[l] = scale_tril[l] - scale_tril[l] * rexpand(mask0.float(), 1, 1)
-            scale_tril[l] = scale_tril[l] + self.scale_tril0[l] * rexpand(mask0.float(), 1, 1)
-            scale_tril[l] = scale_tril[l] - scale_tril[l] * rexpand(mask1.float(), 1, 1)
-            scale_tril[l] = scale_tril[l] + self.scale_tril1[l] * rexpand(mask1.float(), 1, 1)
+            mu[l] = mu[l] + (-mu[l] + self.mu0[l]) * rexpand(mask0.float(), 1)
+            mu[l] = mu[l] + (-mu[l] + self.mu1[l]) * rexpand(mask1.float(), 1)
+            scale_tril[l] = scale_tril[l] + (-scale_tril[l] + self.scale_tril0[l]) * rexpand(mask0.float(), 1, 1)
+            scale_tril[l] = scale_tril[l] + (-scale_tril[l] + self.scale_tril1[l]) * rexpand(mask1.float(), 1, 1)
             scale_tril[l] = rtril(scale_tril[l])
 
         return mu, scale_tril
