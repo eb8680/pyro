@@ -413,13 +413,13 @@ def elbo_learn(model, design, observation_labels, target_labels,
 
 
 def iwae_eig(model, design, observation_labels, target_labels,
-             num_samples, M, num_steps, guide, optim, return_history=False,
+             num_samples, num_steps, guide, optim, return_history=False,
              final_design=None, final_num_samples=None):
     if isinstance(observation_labels, str):
         observation_labels = [observation_labels]
     if isinstance(target_labels, str):
         target_labels = [target_labels]
-    loss = iwae_eig_loss(model, guide, observation_labels, target_labels, M)
+    loss = iwae_eig_loss(model, guide, observation_labels, target_labels)
     return opt_eig_ape_loss(design, loss, num_samples, num_steps, optim, return_history,
                             final_design, final_num_samples)
 
@@ -685,11 +685,11 @@ def elbo(model, guide, data, observation_labels, target_labels):
     return loss_fn
 
 
-def iwae_eig_loss(model, guide, observation_labels, target_labels, M):
+def iwae_eig_loss(model, guide, observation_labels, target_labels):
 
     def loss_fn(design, num_particles, evaluation=False, **kwargs):
-
-        expanded_design = lexpand(design, num_particles)
+        N, M = num_particles
+        expanded_design = lexpand(design, N)
 
         # Sample from p(y, theta | d)
         trace = poutine.trace(model).get_trace(expanded_design)
