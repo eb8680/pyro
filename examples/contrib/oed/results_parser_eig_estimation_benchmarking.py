@@ -13,7 +13,18 @@ from matplotlib.ticker import MaxNLocator
 from pyro.contrib.util import rmv
 
 output_dir = "./run_outputs/eig_benchmark/"
-COLOURS = [[0., 0., 0.], [1, .6, 0], [1, .4, .4], [.5, .5, 1.], [.1, .7, .4], [.7, .4, 1.]]
+COLOURS = {
+           "Ground truth": [0., 0., 0.],
+           "Nested Monte Carlo": [1, .6, 0],
+           "Posterior": [1, .4, .4],
+           "Marginal": [.5, .5, 1.],
+           "Marginal + likelihood": [.1, .7, .4],
+           "Amortized LFIRE": [.66, .82, .43],
+           "ALFIRE 2": [.3, .7, .9],
+           "LFIRE": [.78, .78, .60],
+           "LFIRE 2": [.78, .40, .8],
+           "IWAE": [.7, .4, 1.]
+}
 
 
 def upper_lower(array):
@@ -35,7 +46,7 @@ def main(fnames, findices, plot):
     if not fnames:
         raise ValueError("No matching files found")
 
-    results_dict = defaultdict(lambda : defaultdict(dict))
+    results_dict = defaultdict(lambda: defaultdict(dict))
     for fname in fnames:
         with open(fname, 'rb') as results_file:
             try:
@@ -59,10 +70,10 @@ def main(fnames, findices, plot):
     if plot:
         for case, d in reformed.items():
             plt.figure(figsize=(10, 5))
-            for i, (lower, centre, upper) in enumerate(d.values()):
+            for k, (lower, centre, upper) in d.items():
                 x = np.arange(0, centre.shape[0])
-                plt.plot(x, centre, linestyle='-', markersize=6, color=COLOURS[i], marker='o')
-                plt.fill_between(x, upper, lower, color=COLOURS[i]+[.2])
+                plt.plot(x, centre, linestyle='-', markersize=6, color=COLOURS[k], marker='o')
+                plt.fill_between(x, upper, lower, color=COLOURS[k]+[.2])
             plt.title(case, fontsize=18)
             plt.legend(d.keys(), loc=1, fontsize=16)
             plt.xlabel("Step", fontsize=18)

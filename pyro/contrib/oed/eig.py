@@ -365,6 +365,42 @@ def gibbs_y_re_eig(model, design, observation_labels, target_labels,
                             final_design, final_num_samples)
 
 
+def amortized_lfire_eig(model, design, observation_labels, target_labels,
+                        num_samples, num_steps, classifier, optim, return_history=False,
+                        final_design=None, final_num_samples=None):
+    if isinstance(observation_labels, str):
+        observation_labels = [observation_labels]
+    if isinstance(target_labels, str):
+        target_labels = [target_labels]
+    loss = alfire_loss(model, classifier, observation_labels, target_labels)
+    return opt_eig_ape_loss(design, loss, num_samples, num_steps, optim, return_history,
+                            final_design, final_num_samples)
+
+
+def lfire_eig(model, design, observation_labels, target_labels,
+              num_y_samples, num_theta_samples, num_steps, classifier, optim, return_history=False,
+              final_design=None, final_num_samples=None):
+    if isinstance(observation_labels, str):
+        observation_labels = [observation_labels]
+    if isinstance(target_labels, str):
+        target_labels = [target_labels]
+
+    # Take N samples of the model
+    expanded_design = lexpand(design, num_theta_samples)
+    trace = poutine.trace(model).get_trace(expanded_design)
+
+    theta_dict = {l: trace.nodes[l]["value"] for l in target_labels}
+    cond_model = pyro.condition(model, data=theta_dict)
+
+    loss = lfire_loss(model, cond_model, classifier, observation_labels, target_labels)
+    out = opt_eig_ape_loss(expanded_design, loss, num_y_samples, num_steps, optim, return_history,
+                           final_design, final_num_samples)
+    if return_history:
+        return out[0], out[1].sum(0) / num_theta_samples
+    else:
+        return out.sum(0) / num_theta_samples
+
+
 def elbo_learn(model, design, observation_labels, target_labels,
                num_samples, num_steps, guide, data, optim):
 
@@ -441,10 +477,8 @@ def donsker_varadhan_loss(model, T, observation_labels, target_labels):
         conditional_model = pyro.condition(model, data=y_dict)
         shuffled_trace = poutine.trace(conditional_model).get_trace(expanded_design)
 
-        T_joint = T(expanded_design, unshuffled_trace, observation_labels,
-                    target_labels)
-        T_independent = T(expanded_design, shuffled_trace, observation_labels,
-                          target_labels)
+        T_joint = T(expanded_design, unshuffled_trace, observation_labels, target_labels)
+        T_independent = T(expanded_design, shuffled_trace, observation_labels, target_labels)
 
         joint_expectation = T_joint.sum(0)/num_particles
 
@@ -480,13 +514,21 @@ def barber_agakov_loss(model, guide, observation_labels, target_labels, analytic
             loss = mean_field_guide_entropy(guide,
                     [y_dict, expanded_design, observation_labels, target_labels],
                     whitelist=target_labels).sum(0)/num_particles
-
         else:
             loss = -sum(cond_trace.nodes[l]["log_prob"] for l in target_labels).sum(0)/num_particles
         agg_loss = loss.sum()
         return agg_loss, loss
 
     return loss_fn
+
+
+def safe_mean_terms(terms):
+    mask = torch.isnan(terms) | (terms == float('-inf')) | (terms == float('inf'))
+    nonnan = (~mask).sum(0).float()
+    terms[mask] = 0.
+    loss = terms.sum(0) / nonnan
+    agg_loss = loss.sum()
+    return agg_loss, loss
 
 
 def gibbs_y_loss(model, guide, observation_labels, target_labels):
@@ -512,12 +554,7 @@ def gibbs_y_loss(model, guide, observation_labels, target_labels):
             trace.compute_log_prob()
             terms += sum(trace.nodes[l]["log_prob"] for l in observation_labels)
 
-        mask = torch.isnan(terms) | (terms == float('-inf')) | (terms == float('inf'))
-        nonnan = (~mask).sum(0).float()
-        terms[mask] = 0.
-        loss = terms.sum(0)/nonnan
-        agg_loss = loss.sum()
-        return agg_loss, loss
+        return safe_mean_terms(terms)
 
     return loss_fn
 
@@ -553,12 +590,69 @@ def gibbs_y_re_loss(model, marginal_guide, cond_guide, observation_labels, targe
         else:
             terms -= sum(cond_trace.nodes[l]["log_prob"] for l in observation_labels)
 
-        mask = torch.isnan(terms) | (terms == float('-inf')) | (terms == float('inf'))
-        nonnan = (~mask).sum(0).float()
-        terms[mask] = 0.
-        loss = terms.sum(0)/nonnan
-        agg_loss = loss.sum()
-        return agg_loss, loss
+        return safe_mean_terms(terms)
+
+    return loss_fn
+
+
+def alfire_loss(model, h, observation_labels, target_labels):
+
+    def loss_fn(design, num_particles, evaluation=False, **kwargs):
+
+        try:
+            pyro.module("h", h)
+        except AssertionError:
+            pass
+
+        expanded_design = lexpand(design, num_particles)
+
+        # Unshuffled data
+        unshuffled_trace = poutine.trace(model).get_trace(expanded_design)
+        y_dict = {l: unshuffled_trace.nodes[l]["value"] for l in observation_labels}
+
+        if not evaluation:
+            # Shuffled data
+            # Not actually shuffling, re-simulate for safety
+            conditional_model = pyro.condition(model, data=y_dict)
+            shuffled_trace = poutine.trace(conditional_model).get_trace(expanded_design)
+
+            h_joint = h(expanded_design, unshuffled_trace, observation_labels, target_labels)
+            h_independent = h(expanded_design, shuffled_trace, observation_labels, target_labels)
+
+            terms = torch.nn.functional.softplus(-h_joint) + torch.nn.functional.softplus(h_independent)
+            return safe_mean_terms(terms)
+
+        else:
+            h_joint = h(expanded_design, unshuffled_trace, observation_labels, target_labels)
+            return safe_mean_terms(h_joint)
+
+    return loss_fn
+
+
+def lfire_loss(model_marginal, model_conditional, h, observation_labels, target_labels):
+
+    def loss_fn(design, num_particles, evaluation=False, **kwargs):
+
+        try:
+            pyro.module("h", h)
+        except AssertionError:
+            pass
+
+        expanded_design = lexpand(design, num_particles)
+        model_conditional_trace = poutine.trace(model_conditional).get_trace(expanded_design)
+
+        if not evaluation:
+            model_marginal_trace = poutine.trace(model_marginal).get_trace(expanded_design)
+
+            h_joint = h(expanded_design, model_conditional_trace, observation_labels, target_labels)
+            h_independent = h(expanded_design, model_marginal_trace, observation_labels, target_labels)
+
+            terms = torch.nn.functional.softplus(-h_joint) + torch.nn.functional.softplus(h_independent)
+            return safe_mean_terms(terms)
+
+        else:
+            h_joint = h(expanded_design, model_conditional_trace, observation_labels, target_labels)
+            return safe_mean_terms(h_joint)
 
     return loss_fn
 
@@ -586,12 +680,7 @@ def elbo(model, guide, data, observation_labels, target_labels):
         terms -= sum(model_trace.nodes[l]["log_prob"] for l in target_labels)
         terms -= sum(model_trace.nodes[l]["log_prob"] for l in observation_labels)
 
-        mask = torch.isnan(terms) | (terms == float('-inf')) | (terms == float('inf'))
-        nonnan = (~mask).sum(0).float()
-        terms[mask] = 0.
-        loss = terms.sum(0)/nonnan
-        agg_loss = loss.sum()
-        return agg_loss, loss
+        return safe_mean_terms(terms)
 
     return loss_fn
 
@@ -629,12 +718,7 @@ def iwae_eig_loss(model, guide, observation_labels, target_labels, M):
             trace.compute_log_prob()
             terms += sum(trace.nodes[l]["log_prob"] for l in observation_labels)
 
-        mask = torch.isnan(terms) | (terms == float('-inf')) | (terms == float('inf'))
-        nonnan = (~mask).sum(0).float()
-        terms[mask] = 0.
-        loss = terms.sum(0) / nonnan
-        agg_loss = loss.sum()
-        return agg_loss, loss
+        return safe_mean_terms(terms)
 
     return loss_fn
 

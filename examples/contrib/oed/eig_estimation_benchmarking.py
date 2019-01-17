@@ -13,7 +13,7 @@ from pyro import optim
 from pyro.infer import TraceEnum_ELBO
 from pyro.contrib.oed.eig import (
     vi_ape, naive_rainforth_eig, accelerated_rainforth_eig, donsker_varadhan_eig, gibbs_y_eig,
-    gibbs_y_re_eig, iwae_eig
+    gibbs_y_re_eig, amortized_lfire_eig, lfire_eig, iwae_eig
 )
 from pyro.contrib.util import lexpand
 from pyro.contrib.oed.util import (
@@ -28,6 +28,7 @@ from pyro.contrib.glmm.guides import (
     LogisticMarginalGuide, LogisticLikelihoodGuide, SigmoidMarginalGuide, SigmoidLikelihoodGuide,
     NormalMarginalGuide, NormalLikelihoodGuide
 )
+from pyro.contrib.glmm.classifiers import LinearModelAmortizedClassifier, LinearModelBootstrapClassifier, LinearModelClassifier
 
 """
 Expected information gain estimation benchmarking
@@ -106,6 +107,8 @@ posterior_mc = Estimator("Posterior", ["posterior", "gibbs", "ba", "standard"], 
 marginal = Estimator("Marginal", ["marginal", "gibbs", "standard"], gibbs_y_eig)
 marginal_re = Estimator("Marginal + likelihood", ["marginal_re", "marginal_likelihood", "gibbs", "standard"],
                         gibbs_y_re_eig)
+alfire = Estimator("Amortized LFIRE", ["alfire"], amortized_lfire_eig)
+lfire = Estimator("LFIRE", ["lfire"], lfire_eig)
 iwae = Estimator("IWAE", ["iwae"], iwae_eig)
 
 Case = namedtuple("EIGBenchmarkingCase", [
@@ -209,9 +212,26 @@ CASES = [
              {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
               "guide": (NormalMarginalGuide, {"mu_init": 0., "sigma_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            # (marginal_re,
+            #  {"num_samples": 10, "num_steps": 600, "final_num_samples": 500,
+            #   "marginal_guide": (NormalMarginalGuide, {"mu_init": 0., "sigma_init": 3.}),
+            #   "cond_guide": (NormalLikelihoodGuide, {"mu_init": 0., "sigma_init": 3.}),
+            #   "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (alfire,
+             {"num_samples": 10, "num_steps": 1500, "final_num_samples": 500,
+              "classifier": (LinearModelAmortizedClassifier, {"scale_tril_init": 1/3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (Estimator("ALFIRE 2", ["alfire2"], amortized_lfire_eig),
+             {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
+              "classifier": (LinearModelBootstrapClassifier, {"scale_tril_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (lfire,
+             {"num_theta_samples": 60, "num_y_samples": 2, "num_steps": 1200, "final_num_samples": 100,
+              "classifier": (LinearModelClassifier, {"scale_tril_init": 1/3., "ntheta": 60}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (truth_lm, {})
         ],
-        ["lm", "ground_truth", "no_re", "ab_test", "small_n"]
+        ["lm", "ground_truth", "no_re", "ab_test", "small_n", "lmab"]
     ),
     Case(
         "Linear model with random effects",
@@ -484,7 +504,7 @@ def main(case_tags, estimator_tags, num_runs, num_parallel, experiment_name):
                         if isinstance(value, tuple):
                             param_func, param_params = value
                             # Communicate some size attributes to the guide
-                            if "guide" in key:
+                            if "guide" in key or "classifier" in key:
                                 param_params.update({"d": expanded_design.shape[:2],
                                                      "w_sizes": model.w_sizes,
                                                      "y_sizes": {model.observation_label: expanded_design.shape[-2]}})
