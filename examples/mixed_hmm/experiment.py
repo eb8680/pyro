@@ -156,8 +156,8 @@ def run_expt(args):
     results["aic_num_parameters"] = aic_num_parameters(config)
 
     if args["resultsdir"] is not None:
-        re_str = "g" + ("n" if args["group"] is None else "d" if args["group"] == "discrete" else "c")
-        re_str += "i" + ("n" if args["individual"] is None else "d" if args["individual"] == "discrete" else "c")
+        re_str = "g" + ("n" if (args["group"] is None or args["group"] == "none") else "d" if args["group"] == "discrete" else "c")
+        re_str += "i" + ("n" if (args["individual"] is None or args["individual"] == "none") else "d" if args["individual"] == "discrete" else "c")
         results_filename = "expt_{}_{}_{}.json".format(args["dataset"], re_str, str(uuid.uuid4().hex)[0:5])
         with open(os.path.join(args["resultsdir"], results_filename), "w") as f:
             json.dump(results, f)
