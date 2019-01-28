@@ -441,9 +441,23 @@ def iter_iaranges_to_shape(shape):
         yield pyro.iarange("iarange_" + str(i), s)
 
 
+def _broadcast_shape(shapes):
+    r"""
+    Given a list of tensor sizes, returns the size of the resulting broadcasted
+    tensor.
+    Args:
+        shapes (list of torch.Size): list of tensor sizes
+
+    Copied from PyTorch 0.4.0
+    """
+    shape = torch.Size()
+    for s in shapes:
+        shape = torch._C._infer_size(s, shape)
+    return shape
+
+
 def broadcast_cat(ws):
     shapes = [w.shape[:-1] for w in ws]
     target = _broadcast_shape(shapes)
     expanded = [w.expand(target + (w.shape[-1],)) for w in ws]
     return torch.cat(expanded, dim=-1)
-
