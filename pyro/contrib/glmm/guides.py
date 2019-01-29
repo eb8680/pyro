@@ -118,7 +118,7 @@ class LinearModelLaplaceGuide(nn.Module):
         # loop over dependent part
         for i in range(flat_dy.shape[-1]):
             dyi = flat_dy.index_select(-1, torch.tensor([i]))
-            Hi = torch.autograd.grad([dyi], [x,], grad_outputs=[torch.ones_like(dyi)], retain_graph=True)[0]  # XXX wrong shape
+            Hi = torch.autograd.grad([dyi], [x,], grad_outputs=[torch.ones_like(dyi)], retain_graph=True)[0]
             H.append(Hi)
         H = torch.stack(H, -1).reshape(*(x.shape + event_shape))
         return H
@@ -143,8 +143,7 @@ class LinearModelLaplaceGuide(nn.Module):
         self.eval()
         for l, mu_l in self.means.items():
             if l not in target_labels:
-                continue  # XXX is this right?
-            # TODO get the shape and components right
+                continue
             hess_l = self._hessian_diag(loss, mu_l, event_shape=(self.w_sizes[l],))
             cov_l = rinverse(hess_l)
             self.scale_trils[l] = rtril(self._batch_potrf_compat(cov_l, upper=False))

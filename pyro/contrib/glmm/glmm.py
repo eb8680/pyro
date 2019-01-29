@@ -6,7 +6,6 @@ from functools import partial
 import torch
 from torch.nn.functional import softplus
 from torch.distributions import constraints
-from torch.distributions.utils import _broadcast_shape
 
 import pyro
 import pyro.distributions as dist

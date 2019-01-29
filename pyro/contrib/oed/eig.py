@@ -13,7 +13,7 @@ from pyro.contrib.util import lexpand, rexpand
 
 
 def laplace_vi_ape(model, design, observation_labels, target_labels,
-                   guide, loss, optim, num_steps, num_samples,
+                   guide, loss, optim, num_steps,
                    final_num_samples, y_dist=None):
     """
     Laplace approximation
@@ -28,14 +28,13 @@ def laplace_vi_ape(model, design, observation_labels, target_labels,
         y = pyro.sample("conditioning_y", y_dist)
         y_dict = {label: y[i, ...] for i, label in enumerate(observation_labels)}
         conditioned_model = pyro.condition(model, data=y_dict)
-        SVI(conditioned_model, guide=guide, loss=loss, optim=optim, num_steps=num_steps, num_samples=num_samples).run(design)
+        # Here just using SVI to run the MAP optimization
+        SVI(conditioned_model, guide=guide, loss=loss, optim=optim, num_steps=num_steps, num_samples=1).run(design)
         # Recover the entropy
-        with poutine.block():  # XXX is this necessary?
-            # import pdb; pdb.set_trace()
+        with poutine.block():
             final_loss = loss(conditioned_model, guide, design)
             guide.finalize(final_loss, target_labels)
-            entropy = mean_field_guide_entropy(guide, [design], whitelist=target_labels) # + torch.log(torch.tensor(5.))
-            # print("LAPLACE ", final_loss, entropy)
+            entropy = mean_field_guide_entropy(guide, [design], whitelist=target_labels)
         return entropy
 
     if y_dist is None:
@@ -100,11 +99,10 @@ def vi_ape(model, design, observation_labels, target_labels,
         conditioned_model = pyro.condition(model, data=y_dict)
         SVI(conditioned_model, **vi_parameters).run(design)
         # Recover the entropy
-        with poutine.block():  # XXX is this necessary?
+        with poutine.block():
             guide = vi_parameters["guide"]
             final_loss = vi_parameters["loss"](conditioned_model, guide, design)
             entropy = mean_field_guide_entropy(guide, [design], whitelist=target_labels)
-            print("VI ", final_loss, entropy)
         return entropy
 
     if y_dist is None:
