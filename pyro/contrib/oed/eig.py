@@ -8,7 +8,6 @@ from pyro import poutine
 from pyro.contrib.oed.search import Search
 from pyro.infer import EmpiricalMarginal, Importance, SVI
 from pyro.contrib.autoguide import mean_field_guide_entropy
-from pyro.contrib.glmm.guides import LinearModelLaplaceGuide
 from pyro.contrib.util import lexpand, rexpand
 
 
@@ -34,7 +33,7 @@ def laplace_vi_ape(model, design, observation_labels, target_labels,
         with poutine.block():
             final_loss = loss(conditioned_model, guide, design)
             guide.finalize(final_loss, target_labels)
-            entropy = mean_field_guide_entropy(guide, [design], whitelist=target_labels)
+            entropy = mean_field_guide_entropy(guide, [design], whitelist=target_labels + ["full_laplace"])
         return entropy
 
     if y_dist is None:

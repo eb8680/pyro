@@ -66,3 +66,6 @@ class Delta(TorchDistribution):
     @property
     def variance(self):
         return torch.zeros_like(self.v)
+
+    def entropy(self):
+        return torch.zeros(self.batch_shape, dtype=self.v.dtype)

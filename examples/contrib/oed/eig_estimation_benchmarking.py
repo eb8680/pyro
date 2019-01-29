@@ -28,7 +28,7 @@ from pyro.contrib.glmm.guides import (
     LinearModelPosteriorGuide, NormalInverseGammaPosteriorGuide, SigmoidPosteriorGuide, GuideDV, LogisticPosteriorGuide,
     LogisticMarginalGuide, LogisticLikelihoodGuide, SigmoidMarginalGuide, SigmoidLikelihoodGuide,
     NormalMarginalGuide, NormalLikelihoodGuide,
-    LinearModelLaplaceGuide,
+    LinearModelDiagLaplaceGuide, LinearModelFullLaplaceGuide,
 )
 from pyro.contrib.glmm.classifiers import LinearModelAmortizedClassifier, LinearModelBootstrapClassifier, LinearModelClassifier
 
@@ -241,7 +241,7 @@ CASES = [
              {"num_steps": 1000, 
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}}),
               "loss": TraceEnum_ELBO(max_iarange_nesting=2).differentiable_loss,
-              "guide": (LinearModelLaplaceGuide, {}),
+              "guide": (LinearModelDiagLaplaceGuide, {}),
               "final_num_samples": 10}),
         ],
         ["lm", "ground_truth", "no_re", "ab_test", "small_n", "lmab"]

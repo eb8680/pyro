@@ -78,20 +78,19 @@ class LinearModelPosteriorGuide(nn.Module):
             pyro.sample(l, w_dist)
 
 
-class LinearModelLaplaceGuide(nn.Module):
+class LinearModelDiagLaplaceGuide(nn.Module):
     """
-    Laplace approximation for a (G)LM
+    Block-diagonal Laplace approximation for a (G)LM
     """
     def __init__(self, d, w_sizes, **kwargs):
-        super(LinearModelLaplaceGuide, self).__init__()
+        super(LinearModelDiagLaplaceGuide, self).__init__()
         # start in train mode
         self.train()
         if not isinstance(d, (tuple, list, torch.Tensor)):
             d = (d,)
-        self.means = {}
-        for l, mu_l in tensor_to_dict(w_sizes, 0.01*torch.ones(*d, sum(w_sizes.values()))).items():
-            self.means[l] = nn.Parameter(mu_l)
-        self._registered = nn.ParameterList(self.means.values())
+        self.mean = nn.Parameter(0.01*torch.ones(*d, sum(w_sizes.values())))
+        self.means = tensor_to_dict(w_sizes, self.mean)
+        # self._registered = nn.ParameterList(self.means.values())
         self.scale_trils = {}
         self.w_sizes = w_sizes
 
@@ -148,6 +147,17 @@ class LinearModelLaplaceGuide(nn.Module):
             cov_l = rinverse(hess_l)
             self.scale_trils[l] = rtril(self._batch_potrf_compat(cov_l, upper=False))
 
+    def _mvn_forward(self, design, target_labels):
+        for l in target_labels:
+            w_dist = dist.MultivariateNormal(self.means[l], scale_tril=self.scale_trils[l])
+            pyro.sample(l, w_dist)
+
+    def _map_forward(self, design, target_labels):
+        # MAP via Delta guide
+        for l in target_labels:
+            w_dist = dist.Delta(self.means[l]).independent(1)
+            pyro.sample(l, w_dist)
+
     def forward(self, design, target_labels=None):
         """
         Sample the posterior
@@ -162,15 +172,26 @@ class LinearModelLaplaceGuide(nn.Module):
                 stack.enter_context(iarange)
 
             if self.training:
-                # MAP via Delta guide
-                for l in target_labels:
-                    w_dist = dist.Delta(self.means[l]).independent(1)
-                    pyro.sample(l, w_dist)
+                self._map_forward(design, target_labels)
             else:
                 # Laplace approximation via MVN with hessian
-                for l in target_labels:
-                    w_dist = dist.MultivariateNormal(self.means[l], scale_tril=self.scale_trils[l])
-                    pyro.sample(l, w_dist)
+                self._mvn_forward(design, target_labels)
+
+
+class LinearModelFullLaplaceGuide(LinearModelDiagLaplaceGuide):
+
+    def finalize(self, loss, target_labels):
+        self.eval()
+        hess = self._hessian_diag(loss, self.mean, event_shape=(self.mean.shape[-1],))
+        cov = rinverse(hess)
+        self._scale_tril = rtril(self._batch_potrf_compat(cov, upper=False))
+
+    def _mvn_forward(self, design, target_labels):
+        ws_dist = dist.MultivariateNormal(self.mean, scale_tril=self._scale_tril)
+        v = pyro.sample("full_laplace", ws_dist, infer={"is_auxiliary": True})
+        for l, v_l in tensor_to_dict(self.w_sizes, v).items():
+            w_dist = dist.Delta(v=v_l).independent(1)
+            pyro.sample(l, w_dist)
 
 
 class SigmoidPosteriorGuide(LinearModelPosteriorGuide):
