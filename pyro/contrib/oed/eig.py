@@ -8,6 +8,7 @@ from pyro import poutine
 from pyro.contrib.oed.search import Search
 from pyro.infer import EmpiricalMarginal, Importance, SVI
 from pyro.contrib.autoguide import mean_field_guide_entropy
+from pyro.contrib.glmm.guides import LinearModelLaplaceGuide
 from pyro.contrib.util import lexpand, rexpand
 
 
