@@ -49,8 +49,6 @@ group_2p_linear_model_sds_10_2pt5 = group_linear_model(torch.tensor(0.), torch.t
                                                        torch.tensor([2.5]), torch.tensor(1.))
 group_2p_guide = group_normal_guide(torch.tensor(1.), (1,), (1,))
 group_2p_ba_guide = lambda d: LinearModelPosteriorGuide(d, OrderedDict([("w1", 1), ("w2", 1)]))  # noqa: E731
-group_2p_laplacediag_guide = lambda d: LinearModelDiagLaplaceGuide(d, OrderedDict([("w1", 1), ("w2", 1)]))  # noqa: E731
-group_2p_laplacefull_guide = lambda d: LinearModelFullLaplaceGuide(d, OrderedDict([("w1", 1), ("w2", 1)]))  # noqa: E731
 
 ########################################################################################
 # Aux
@@ -216,27 +214,6 @@ TEST_CASES = [
         True,
         0.22
     ),
-    T(
-        group_2p_linear_model_sds_10_2pt5,
-        X_circle_5d_1n_2p,
-        "y",
-        "w1",
-        laplace_vi_ape,
-        [group_2p_laplacediag_guide(5), elbo, optim.Adam({"lr": 0.05}), 1000, 2],
-        False,
-        0.3
-    ),
-    # T(
-    #     group_2p_linear_model_sds_10_2pt5,
-    #     X_circle_5d_1n_2p,
-    #     "y",
-    #     "w1",
-    #     laplace_vi_ape,
-    #     [group_2p_laplacefull_guide(5), elbo, optim.Adam({"lr": 0.05}), 1000, 2],
-    #     False,
-    #     0.3
-    # ),
-
     # This fails because guide is wrong
     pytest.param(
         group_2p_linear_model_sds_10_2pt5,
