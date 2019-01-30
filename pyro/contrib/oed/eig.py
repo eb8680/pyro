@@ -33,7 +33,7 @@ def laplace_vi_ape(model, design, observation_labels, target_labels,
         with poutine.block():
             final_loss = loss(conditioned_model, guide, design)
             guide.finalize(final_loss, target_labels)
-            entropy = mean_field_guide_entropy(guide, [design], whitelist=target_labels + ["full_laplace"])
+            entropy = mean_field_guide_entropy(guide, [design, target_labels], whitelist=target_labels + ["full_laplace"])
         return entropy
 
     if y_dist is None:
