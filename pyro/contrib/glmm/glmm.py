@@ -6,7 +6,6 @@ from functools import partial
 import torch
 from torch.nn.functional import softplus
 from torch.distributions import constraints
-from torch.distributions.utils import _broadcast_shape
 
 import pyro
 import pyro.distributions as dist
@@ -74,7 +73,7 @@ def group_normal_guide(observation_sd, coef1_shape, coef2_shape,
 
 
 def zero_mean_unit_obs_sd_lm(coef_sd, coef_label="w"):
-    model = known_covariance_linear_model(torch.tensor(0.), coef_sd, torch.tensor(1.), coef_label=coef_label)
+    model = known_covariance_linear_model(torch.tensor(0.), coef_sd, torch.tensor(1.), coef_labels=coef_label)
     guide = normal_guide(torch.tensor(1.), coef_sd.shape, coef_label=coef_label)
     return model, guide
 
@@ -441,9 +440,23 @@ def iter_iaranges_to_shape(shape):
         yield pyro.iarange("iarange_" + str(i), s)
 
 
+def _broadcast_shape(shapes):
+    r"""
+    Given a list of tensor sizes, returns the size of the resulting broadcasted
+    tensor.
+    Args:
+        shapes (list of torch.Size): list of tensor sizes
+
+    Copied from PyTorch 0.4.0
+    """
+    shape = torch.Size()
+    for s in shapes:
+        shape = torch._C._infer_size(s, shape)
+    return shape
+
+
 def broadcast_cat(ws):
     shapes = [w.shape[:-1] for w in ws]
     target = _broadcast_shape(shapes)
     expanded = [w.expand(target + (w.shape[-1],)) for w in ws]
     return torch.cat(expanded, dim=-1)
-
