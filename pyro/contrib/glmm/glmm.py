@@ -9,7 +9,7 @@ from torch.distributions import constraints
 
 import pyro
 import pyro.distributions as dist
-from pyro.contrib.util import rmv
+from pyro.contrib.util import rmv, rvv, iter_iaranges_to_shape
 
 try:
     from contextlib import ExitStack  # python 3
@@ -147,6 +147,25 @@ def lmer_model(fixed_effects_sd, n_groups, random_effects_alpha, random_effects_
                    response_label=observation_label)
 
 
+def sigmoid_location_model(loc_mean, loc_sd, multiplier, observation_sd, loc_label="loc", observation_label="y"):
+    def model(design):
+        batch_shape = design.shape[:-2]
+        with ExitStack() as stack:
+            for iarange in iter_iaranges_to_shape(batch_shape):
+                stack.enter_context(iarange)
+            loc_shape = batch_shape + (design.shape[-1],)
+            loc = pyro.sample(loc_label, dist.Normal(loc_mean.expand(loc_shape),
+                                                     loc_sd.expand(loc_shape)).independent(1))
+            mean = rvv(design, multiplier) - loc
+            emission_dist = dist.CensoredSigmoidNormal(mean, observation_sd, 1 - epsilon, epsilon).independent(1)
+            y = pyro.sample(observation_label, emission_dist)
+            return y
+
+    model.w_sizes = {loc_label: 1}
+    model.observation_label = observation_label
+    return model
+
+
 def sigmoid_model_gamma(coef1_mean, coef1_sd, coef2_mean, coef2_sd, observation_sd,
                         sigmoid_alpha, sigmoid_beta, sigmoid_design,
                         coef1_label="w1", coef2_label="w2", observation_label="y",
@@ -261,24 +280,24 @@ def bayesian_linear_model(design, w_means={}, w_sqrtlambdas={}, re_group_sizes={
     """
     # design is size batch x n x p
     # tau is size batch
-    tau_shape = design.shape[:-2]
+    batch_shape = design.shape[:-2]
     with ExitStack() as stack:
-        for iarange in iter_iaranges_to_shape(tau_shape):
+        for iarange in iter_iaranges_to_shape(batch_shape):
             stack.enter_context(iarange)
 
         if obs_sd is None:
             # First, sample tau (observation precision)
-            tau_prior = dist.Gamma(alpha_0.expand(tau_shape),
-                                   beta_0.expand(tau_shape))
+            tau_prior = dist.Gamma(alpha_0.expand(batch_shape).unsqueeze(-1),
+                                   beta_0.expand(batch_shape).unsqueeze(-1)).independent(1)
             tau = pyro.sample("tau", tau_prior)
+            #print("model tau", tau)
             obs_sd = 1./torch.sqrt(tau)
 
         elif alpha_0 is not None or beta_0 is not None:
             warnings.warn("Values of `alpha_0` and `beta_0` unused becased"
                           "`obs_sd` was specified already.")
 
-        # response will be shape batch x n
-        obs_sd = obs_sd.expand(tau_shape).unsqueeze(-1)
+        obs_sd = obs_sd.expand(batch_shape + (1,))
 
         # Build the regression coefficient
         w = []
@@ -294,11 +313,11 @@ def bayesian_linear_model(design, w_means={}, w_sqrtlambdas={}, re_group_sizes={
             # Sample `G` once for this group
             alpha, beta = re_alphas[name], re_betas[name]
             group_p = alpha.shape[-1]
-            G_prior = dist.Gamma(alpha.expand(tau_shape + (group_p,)),
-                                 beta.expand(tau_shape + (group_p,)))
+            G_prior = dist.Gamma(alpha.expand(batch_shape + (group_p,)),
+                                 beta.expand(batch_shape + (group_p,)))
             G = 1./torch.sqrt(pyro.sample("G_" + name, G_prior))
             # Repeat `G` for each group
-            repeat_shape = tuple(1 for _ in tau_shape) + (group_size,)
+            repeat_shape = tuple(1 for _ in batch_shape) + (group_size,)
             u_prior = dist.Normal(torch.tensor(0.), G.repeat(repeat_shape)).independent(1)
             w.append(pyro.sample(name, u_prior))
         # Regression coefficient `w` is batch x p
@@ -312,7 +331,6 @@ def bayesian_linear_model(design, w_means={}, w_sqrtlambdas={}, re_group_sizes={
         elif response == "bernoulli":
             return pyro.sample(response_label, dist.Bernoulli(logits=prediction_mean).independent(1))
         elif response == "sigmoid":
-            base_dist = dist.Normal(prediction_mean, obs_sd)
             # You can add loc via the linear model itself
             k = k.expand(prediction_mean.shape)
             response_dist = dist.CensoredSigmoidNormal(
@@ -432,12 +450,6 @@ def analytic_posterior_cov(prior_cov, x, obs_sd):
     posterior_cov = prior_cov - torch.inverse(
         SigmaXX + (obs_sd**2)*torch.eye(p)).mm(SigmaXX.mm(prior_cov))
     return posterior_cov
-
-
-def iter_iaranges_to_shape(shape):
-    # Go backwards (right to left)
-    for i, s in enumerate(shape[::-1]):
-        yield pyro.iarange("iarange_" + str(i), s)
 
 
 def _broadcast_shape(shapes):

@@ -6,11 +6,11 @@ from torch import nn
 import pyro
 import pyro.distributions as dist
 from pyro import poutine
-from pyro.contrib.util import get_indices, tensor_to_dict, rmv, rvv, rtril, rdiag, lexpand, rexpand
+from pyro.contrib.util import (
+    get_indices, tensor_to_dict, rmv, rvv, rtril, rdiag, lexpand, rexpand, iter_iaranges_to_shape
+)
 from pyro.ops.linalg import rinverse
 from pyro.util import is_bad
-
-from .glmm import iter_iaranges_to_shape
 
 try:
     from contextlib import ExitStack  # python 3
@@ -55,7 +55,7 @@ class LinearModelPosteriorGuide(nn.Module):
 
     def linear_model_formula(self, y, design, target_labels):
 
-        tikhonov_diag = rdiag(self.softplus(self.tikhonov_diag))
+        tikhonov_diag = rdiag(torch.exp(self.tikhonov_diag))
         xtx = torch.matmul(design.transpose(-1, -2), design) + tikhonov_diag
         xtxi = rinverse(xtx, sym=True)
         mu = rmv(xtxi, rmv(design.transpose(-1, -2), y) + self.scaled_prior_mean)
@@ -82,14 +82,16 @@ class LinearModelLaplaceGuide(nn.Module):
     """
     Laplace approximation for a (G)LM
     """
-    def __init__(self, d, w_sizes, **kwargs):
+    def __init__(self, d, w_sizes, tau_label=None, init_value=0.1, **kwargs):
         super(LinearModelLaplaceGuide, self).__init__()
         # start in train mode
         self.train()
         if not isinstance(d, (tuple, list, torch.Tensor)):
             d = (d,)
         self.means = {}
-        for l, mu_l in tensor_to_dict(w_sizes, 0.01*torch.ones(*d, sum(w_sizes.values()))).items():
+        if tau_label is not None:
+            w_sizes[tau_label] = 1
+        for l, mu_l in tensor_to_dict(w_sizes, init_value*torch.ones(*d, sum(w_sizes.values()))).items():
             self.means[l] = nn.Parameter(mu_l)
         self._registered = nn.ParameterList(self.means.values())
         self.scale_trils = {}
@@ -153,7 +155,7 @@ class LinearModelLaplaceGuide(nn.Module):
         Sample the posterior
         """
         if target_labels is None:
-            target_labels = list(self.w_sizes.keys())
+            target_labels = list(self.means.keys())
 
         pyro.module("laplace_guide", self)
         with ExitStack() as stack:
@@ -173,6 +175,7 @@ class LinearModelLaplaceGuide(nn.Module):
                     pyro.sample(l, w_dist)
 
 
+# Deprecated
 class SigmoidPosteriorGuide(LinearModelPosteriorGuide):
 
     def __init__(self, d, w_sizes, scale_tril_init=3., mu_init=0., **kwargs):
@@ -216,6 +219,47 @@ class SigmoidPosteriorGuide(LinearModelPosteriorGuide):
             scale_tril[l] = rtril(scale_tril[l])
 
         return mu, scale_tril
+
+
+class SigmoidLocationPosteriorGuide(nn.Module):
+
+    def __init__(self, d, w_sizes, scale_tril_init, multiplier, prior_mean, **kwargs):
+        assert len(w_sizes) == 1
+        super(SigmoidLocationPosteriorGuide, self).__init__()
+        self.label, p = list(w_sizes.items())[0]
+
+        self.multiplier = multiplier
+        self.weights = nn.Parameter(torch.zeros(*d, p))
+        self.mean_offsets = nn.ParameterList([nn.Parameter(torch.zeros(*d, p)), nn.Parameter(torch.zeros(*d, p))])
+        self.scale_trils = nn.ParameterList([nn.Parameter(scale_tril_init * lexpand(torch.eye(p), *d)),
+                                             nn.Parameter(scale_tril_init * lexpand(torch.eye(p), *d)),
+                                             nn.Parameter(scale_tril_init * lexpand(torch.eye(p), *d))])
+        self.prior_mean = prior_mean
+
+        # TODO read from torch float specs
+        self.epsilon = torch.tensor(2 ** -24)
+
+    def forward(self, y_dict, design, observation_labels, target_labels):
+        test_point = rvv(design, self.multiplier)
+        # For values in (0, 1), we can perfectly invert the transformation
+        y = torch.cat(list(y_dict.values()), dim=-1)
+        mask0 = (y <= self.epsilon).squeeze(-1)
+        mask1 = (1. - y <= self.epsilon).squeeze(-1)
+        y_trans = y.log() - (1. - y).log()
+        eta = test_point - y_trans
+
+        mu = self.weights * eta + (1 - self.weights) * self.prior_mean
+        scale_tril = self.scale_trils[1]
+
+        mu = mu + self.mean_offsets[0] * rexpand(mask0.float(), 1) + self.mean_offsets[1] * rexpand(mask1.float(), 1)
+        scale_tril = scale_tril + (-scale_tril + self.scale_trils[0]) * rexpand(mask0.float(), 1, 1)
+        scale_tril = scale_tril + (-scale_tril + self.scale_trils[2]) * rexpand(mask1.float(), 1, 1)
+        scale_tril = rtril(scale_tril)
+
+        pyro.module("posterior_guide", self)
+
+        w_dist = dist.MultivariateNormal(mu, scale_tril=scale_tril)
+        pyro.sample(self.label, w_dist)
 
 
 class LogisticPosteriorGuide(LinearModelPosteriorGuide):
@@ -294,9 +338,9 @@ class NormalInverseGammaPosteriorGuide(LinearModelPosteriorGuide):
         mu, scale_tril, alpha, beta = self.get_params(y_dict, design, target_labels)
 
         if self.tau_label in target_labels:
-            tau_dist = dist.Gamma(alpha, beta)
+            tau_dist = dist.Gamma(alpha.unsqueeze(-1), beta.unsqueeze(-1)).independent(1)
             tau = pyro.sample(self.tau_label, tau_dist)
-            obs_sd = 1./tau.sqrt().unsqueeze(-1).unsqueeze(-1)
+            obs_sd = 1./tau.sqrt().unsqueeze(-1)
 
         for label in target_labels:
             if label != self.tau_label:
