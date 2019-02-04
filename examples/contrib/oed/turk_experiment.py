@@ -14,8 +14,8 @@ import pyro
 import pyro.distributions as dist
 from pyro import optim
 from pyro import poutine
-from pyro.contrib.util import rmv, rexpand, lexpand, rtril
-from pyro.contrib.glmm import iter_iaranges_to_shape, broadcast_cat
+from pyro.contrib.util import rmv, rexpand, lexpand, rtril, iter_iaranges_to_shape
+from pyro.contrib.glmm import broadcast_cat
 from pyro.contrib.oed.eig import naive_rainforth_eig, gibbs_y_eig, gibbs_y_re_eig, elbo_learn
 from pyro.contrib.glmm.guides import SigmoidMarginalGuide, SigmoidLikelihoodGuide
 
@@ -325,7 +325,7 @@ def main(num_runs, num_parallel, num_participants, num_questions, experiment_nam
             # Fixed parameters
             pyro.param("true_re_sigma", E_MULTIPLIER * RE_MULTIPLIER * lexpand(torch.tensor(2.), num_parallel, 1))
             pyro.param("true_slope_alpha", lexpand(torch.tensor(3.), num_parallel, 1))
-            pyro.param("true_obs_sd", lexpand(torch.tensor(1.), num_parallel, 1))
+            pyro.param("true_obs_sd", lexpand(torch.tensor(4.), num_parallel, 1))
             pyro.param("true_fixed_effects", lexpand(true_effects, num_parallel, 1))
             pyro.param("prior_fixed_effect_mean", lexpand(torch.zeros(p), num_parallel, 1))
             pyro.param("prior_fixed_effect_scale_tril", E_MULTIPLIER * 20. * lexpand(torch.eye(p), num_parallel, 1))
@@ -335,7 +335,7 @@ def main(num_runs, num_parallel, num_participants, num_questions, experiment_nam
             pyro.param("prior_random_effect_precision_beta", lexpand(target_re_variance * (target_re_variance + 1.), num_parallel, 1))
             pyro.param("prior_slope_precision_alpha", lexpand(torch.tensor(4.), num_parallel, 1))
             pyro.param("prior_slope_precision_beta", lexpand(torch.tensor(4.), num_parallel, 1))
-            pyro.param("prior_obs_sd", lexpand(torch.tensor(1.), num_parallel, 1))
+            pyro.param("prior_obs_sd", lexpand(torch.tensor(4.), num_parallel, 1))
             # Variables
             pyro.param("model_fixed_effect_mean", lexpand(torch.zeros(p), num_parallel, 1))
             pyro.param("model_fixed_effect_scale_tril", E_MULTIPLIER * 20. * lexpand(torch.eye(p), num_parallel, 1))
@@ -344,7 +344,7 @@ def main(num_runs, num_parallel, num_participants, num_questions, experiment_nam
             pyro.param("model_random_effect_precision_beta", lexpand(target_re_variance * (target_re_variance + 1.), num_parallel, 1))
             pyro.param("model_slope_precision_alpha", lexpand(torch.tensor(4.), num_parallel, 1))
             pyro.param("model_slope_precision_beta", lexpand(torch.tensor(4.), num_parallel, 1))
-            pyro.param("model_obs_sd", lexpand(torch.tensor(1.), num_parallel, 1))
+            pyro.param("model_obs_sd", lexpand(torch.tensor(4.), num_parallel, 1))
             pyro.param("model_random_effect_scale_tril", torch.sqrt(target_re_variance) * lexpand(
                 torch.eye(p_re, p_re), num_parallel, 1))
             pyro.param("model_slope_mean", lexpand(torch.zeros(num_participants), num_parallel, 1))
@@ -415,15 +415,16 @@ def main(num_runs, num_parallel, num_participants, num_questions, experiment_nam
                     )
                     results = {'typ': typ, 'run': run_id, 'participant': participant_number, 'question': question_number}
 
+                    mult = 5 if question_number == 1 else 1
                     if typ == 'oed':
                         # Throws ArithmeticError if NaN encountered
                         estimation_surface = gibbs_y_re_eig(
                             model.model, adesign, "y", "fixed_effects",
-                            oed_n_samples, oed_n_steps, sigmoid_response_est, sigmoid_likelihood_est,
+                            oed_n_samples, mult*oed_n_steps, sigmoid_response_est, sigmoid_likelihood_est,
                             optim.Adam({"lr": oed_lr}), False, None, oed_final_n_samples
                         )
                         logging.info("Running gibbs_y_re_eig with n_samples {} n_steps {} "
-                                     "final_n_samples {} lr {}".format(oed_n_samples, oed_n_steps,
+                                     "final_n_samples {} lr {}".format(oed_n_samples, mult*oed_n_steps,
                                                                        oed_final_n_samples, oed_lr))
                         results['estimation_surface'] = estimation_surface
                         print("EIG surface", estimation_surface)
@@ -443,12 +444,12 @@ def main(num_runs, num_parallel, num_participants, num_questions, experiment_nam
                     elif typ == 'oed_no_re':
                         # Throws ArithmeticError if NaN encountered
                         estimation_surface = gibbs_y_eig(
-                            model.model, adesign, ["y"], ALL_LATENTS, oednore_n_samples, oednore_n_steps,
+                            model.model, adesign, ["y"], ALL_LATENTS, oednore_n_samples, mult*oednore_n_steps,
                             sigmoid_response_est, optim.Adam({"lr": oednore_lr}), False, None,
                             oednore_final_n_samples
                         )
                         logging.info("Running gibbs_y_eig with n_samples {} n_steps {} "
-                                     "final_n_samples {} lr {}".format(oednore_n_samples, oednore_n_steps,
+                                     "final_n_samples {} lr {}".format(oednore_n_samples, mult*oednore_n_steps,
                                                                        oednore_final_n_samples, oednore_lr))
                         results['estimation_surface'] = estimation_surface
                         print("EIG surface", estimation_surface)

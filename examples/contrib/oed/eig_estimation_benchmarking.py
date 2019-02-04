@@ -22,15 +22,18 @@ from pyro.contrib.oed.util import (
 )
 from pyro.contrib.glmm import (
     group_assignment_matrix, normal_inverse_gamma_linear_model, sigmoid_model_fixed, known_covariance_linear_model,
-    logistic_regression_model
+    logistic_regression_model, sigmoid_location_model
 )
 from pyro.contrib.glmm.guides import (
     LinearModelPosteriorGuide, NormalInverseGammaPosteriorGuide, SigmoidPosteriorGuide, GuideDV, LogisticPosteriorGuide,
     LogisticMarginalGuide, LogisticLikelihoodGuide, SigmoidMarginalGuide, SigmoidLikelihoodGuide,
-    NormalMarginalGuide, NormalLikelihoodGuide,
-    LinearModelDiagLaplaceGuide, LinearModelFullLaplaceGuide,
+    NormalMarginalGuide, NormalLikelihoodGuide, SigmoidLocationPosteriorGuide,
+    LinearModelDiagLaplaceGuide, LinearModelFullLaplaceGuide
 )
-from pyro.contrib.glmm.classifiers import LinearModelAmortizedClassifier, LinearModelBootstrapClassifier, LinearModelClassifier
+from pyro.contrib.glmm.classifiers import (
+    LinearModelAmortizedClassifier, LinearModelBootstrapClassifier, LinearModelClassifier, SigmoidLocationClassifier
+)
+from examples.contrib.oed.nonlinear_regression import sinusoid_regression, gk_regression
 
 """
 Expected information gain estimation benchmarking
@@ -87,6 +90,11 @@ X_circle_5d_1n_2p = torch.stack([item_thetas_small.cos(), -item_thetas_small.sin
 # Location finding designs
 loc_15d_1n_2p = torch.stack([torch.linspace(-30., 30., 15), torch.ones(15)], dim=-1).unsqueeze(-2)
 loc_4d_1n_2p = torch.tensor([[-5., 1], [-4.9, 1.], [4.9, 1], [5., 1.]]).unsqueeze(-2)
+loc_20d_1n_1p = torch.linspace(-80., 80., 20).unsqueeze(-1).unsqueeze(-1)
+
+# Nonlinear regression
+line_40d_1p = torch.linspace(0., 4*np.pi, 40).unsqueeze(-1).unsqueeze(-1)
+short_line_20d_1p = torch.linspace(-1., 1., 20).unsqueeze(-1).unsqueeze(-1)
 
 ########################################################################################
 # Aux
@@ -100,19 +108,19 @@ Estimator = namedtuple("EIGEstimator",[
     "method"
 ])
 
-truth_lm = Estimator("Ground truth", ["truth", "lm", "standard"], linear_model_ground_truth)
-truth_nigam = Estimator("Ground truth", ["truth", "nigam", "standard"], normal_inverse_gamma_ground_truth)
-nmc = Estimator("Nested Monte Carlo", ["nmc", "naive_rainforth", "standard"], naive_rainforth_eig)
-nnmc = Estimator("Non-nested Monte Carlo", ["nnmc", "accelerated_rainforth", "standard"], accelerated_rainforth_eig)
-posterior_lm = Estimator("Posterior", ["posterior", "gibbs", "ba", "lm", "standard"], ba_eig_lm)
-posterior_mc = Estimator("Posterior", ["posterior", "gibbs", "ba", "standard"], ba_eig_mc)
-marginal = Estimator("Marginal", ["marginal", "gibbs", "standard"], gibbs_y_eig)
-marginal_re = Estimator("Marginal + likelihood", ["marginal_re", "marginal_likelihood", "gibbs", "standard"],
+truth_lm = Estimator("Ground truth", ["truth", "lm", "explicit"], linear_model_ground_truth)
+truth_nigam = Estimator("Ground truth", ["truth", "nigam", "explicit"], normal_inverse_gamma_ground_truth)
+nmc = Estimator("Nested Monte Carlo", ["nmc", "naive_rainforth", "explicit"], naive_rainforth_eig)
+nnmc = Estimator("Non-nested Monte Carlo", ["nnmc", "accelerated_rainforth", "explicit"], accelerated_rainforth_eig)
+posterior_lm = Estimator("Posterior", ["posterior", "gibbs", "ba", "lm", "explicit", "implicit"], ba_eig_lm)
+posterior_mc = Estimator("Posterior", ["posterior", "gibbs", "ba", "explicit", "implicit"], ba_eig_mc)
+marginal = Estimator("Marginal", ["marginal", "gibbs", "explicit"], gibbs_y_eig)
+marginal_re = Estimator("Marginal + likelihood", ["marginal_re", "marginal_likelihood", "gibbs", "implicit"],
                         gibbs_y_re_eig)
 alfire = Estimator("Amortized LFIRE", ["alfire"], amortized_lfire_eig)
-lfire = Estimator("LFIRE", ["lfire"], lfire_eig)
-iwae = Estimator("IWAE", ["iwae"], iwae_eig)
-laplace = Estimator("Laplace", ["laplace", "diag_laplace"], laplace_vi_eig_mc)
+lfire = Estimator("LFIRE", ["lfire", "implicit"], lfire_eig)
+iwae = Estimator("IWAE", ["iwae", "explicit"], iwae_eig)
+laplace = Estimator("Laplace", ["laplace", "diag_laplace", "explicit"], laplace_vi_eig_mc)
 
 Case = namedtuple("EIGBenchmarkingCase", [
     "title",
@@ -133,32 +141,44 @@ CASES = [
         (normal_inverse_gamma_linear_model, {"coef_means": torch.tensor(0.),
                                              "coef_sqrtlambdas": torch.tensor([.1, .55]),
                                              "alpha": torch.tensor(3.),
-                                             "beta": torch.tensor(2.)}),
+                                             "beta": torch.tensor(3.)}),
         AB_test_11d_10n_2p,
         "y",
         ["w", "tau"],
         [
-            (nmc, {"N": 120*120, "M": 120}),
+            (nmc, {"N": 132*132, "M": 132}),
             (posterior_mc,
-             {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
-              "guide": (NormalInverseGammaPosteriorGuide, {"mf": True, "correct_gamma": False, "alpha_init": 3.,
-                                                           "b0_init": 2., "tikhonov_init": -2.,
+             {"num_samples": 10, "num_steps": 1400, "final_num_samples": 500,
+              "guide": (NormalInverseGammaPosteriorGuide, {"mf": True, "correct_gamma": False, "alpha_init": 1.,
+                                                           "b0_init": 1., "tikhonov_init": -2.,
                                                            "scale_tril_init": torch.tensor([[10., 0.], [0., 1/.55]])}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            # (Estimator("Posterior exact guide", ["posterior", "gibbs", "ba", "explicit", "implicit"], ba_eig_mc),
+            #  {"num_samples": 10, "num_steps": 1800, "final_num_samples": 500,
+            #   "guide": (NormalInverseGammaPosteriorGuide, {"mf": False, "correct_gamma": False, "alpha_init": 3.,
+            #                                                "b0_init": 2., "tikhonov_init": -2.,
+            #                                                "scale_tril_init": torch.tensor([[10., 0.], [0., 1/.55]])}),
+            #   "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (iwae,
-             {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500, "M": 1,
-              "guide": (NormalInverseGammaPosteriorGuide, {"mf": True, "correct_gamma": False, "alpha_init": 3.,
-                                                           "b0_init": 2., "tikhonov_init": -2.,
+             {"num_samples": [10, 1], "num_steps": 1000, "final_num_samples": [500, 1],
+              "guide": (NormalInverseGammaPosteriorGuide, {"mf": True, "correct_gamma": False, "alpha_init": 1.,
+                                                           "b0_init": 1., "tikhonov_init": -2.,
                                                            "scale_tril_init": torch.tensor([[10., 0.], [0., 1/.55]])}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (marginal,
-             {"num_samples": 10, "num_steps": 1500, "final_num_samples": 500,
+             {"num_samples": 10, "num_steps": 2200, "final_num_samples": 500,
               "guide": (NormalMarginalGuide, {"mu_init": 0., "sigma_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (lfire,
              {"num_theta_samples": 20, "num_y_samples": 2, "num_steps": 500, "final_num_samples": 100,
               "classifier": (LinearModelClassifier, {"scale_tril_init": 1/3., "ntheta": 20}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (laplace,
+             {"num_steps": 500,
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}}),
+              "loss": TraceEnum_ELBO(max_iarange_nesting=2).differentiable_loss,
+              "guide": (LinearModelDiagLaplaceGuide, {"tau_label": "tau", "init_value": 1.0}),
+              "final_num_samples": 10}),
             (truth_nigam, {}),
         ],
         ["nigam", "ground_truth", "no_re", "ab_test", "explicit_grid"]
@@ -195,16 +215,17 @@ CASES = [
     Case(
         "Linear regression model",
         (known_covariance_linear_model, {"coef_means": torch.tensor(0.),
-                                         "coef_sds": torch.tensor([10., .1]),
+                                         "coef_sds": torch.tensor([10., 1/.55]),
                                          "observation_sd": torch.tensor(1.)}),
         AB_test_11d_10n_2p,
         "y",
         "w",
         [
-            (nmc, {"N": 60*60, "M": 60}),
+            (nmc, {"N": 135*135, "M": 135}),
             (posterior_lm,
-             {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
-              "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+             {"num_samples": 10, "num_steps": 1800, "final_num_samples": 500,
+              "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2.,
+                                                    "scale_tril_init": torch.tensor([[10., 0.], [0., 1/.55]])}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             # TODO: fix analytic entropy
             # (Estimator("Posterior with analytic entropy", ["posterior", "gibbs", "ba", "ae"], ba_eig_lm),
@@ -212,11 +233,12 @@ CASES = [
             #   "guide": (LinearModelGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
             #   "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (iwae,
-             {"num_samples": 10, "num_steps": 800, "final_num_samples": 500, "M": 1,
-              "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+             {"num_samples": [10, 1], "num_steps": 1000, "final_num_samples": [500, 1],
+              "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2.,
+                                                    "scale_tril_init": torch.tensor([[10., 0.], [0., 1/.55]])}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (marginal,
-             {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
+             {"num_samples": 10, "num_steps": 1800, "final_num_samples": 500,
               "guide": (NormalMarginalGuide, {"mu_init": 0., "sigma_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             # (marginal_re,
@@ -236,15 +258,15 @@ CASES = [
              {"num_theta_samples": 60, "num_y_samples": 2, "num_steps": 1200, "final_num_samples": 100,
               "classifier": (LinearModelClassifier, {"scale_tril_init": 1/3., "ntheta": 60}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
-            (truth_lm, {}),
             (laplace,
-             {"num_steps": 1000, 
+             {"num_steps": 1000,
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}}),
               "loss": TraceEnum_ELBO(max_iarange_nesting=2).differentiable_loss,
               "guide": (LinearModelDiagLaplaceGuide, {}),
-              "final_num_samples": 10}),
+              "final_num_samples": 6}),
+            (truth_lm, {}),
         ],
-        ["lm", "ground_truth", "no_re", "ab_test", "small_n", "lmab"]
+        ["lm", "ground_truth", "no_re", "ab_test", "small_n", "lmab", "explicit_grid"]
     ),
     Case(
         "Linear model with random effects",
@@ -301,33 +323,43 @@ CASES = [
     # Sigmoid regression location finding
     #############################################################################################################
     Case(
-        "Sigmoid regression model",
-        (sigmoid_model_fixed, {"coef_means": torch.tensor([1., 10.]),
-                               "coef_sds": torch.tensor([.25, 8.]),
-                               "observation_sd": torch.tensor(2.)}),
-        loc_15d_1n_2p,
+        "Location finding with a sigmoid model",
+        (sigmoid_location_model, {"loc_mean": torch.tensor([-20.]),
+                                  "loc_sd": torch.tensor([20.]),
+                                  "multiplier": torch.tensor([1.]),
+                                  "observation_sd": torch.tensor(1.)}),
+        loc_20d_1n_1p,
         "y",
-        "w",
+        "loc",
         [
-            (nmc, {"N": 80*80, "M": 80}),
+            (nmc, {"N": 78*78, "M": 78}),
             (posterior_mc,
-             {"num_samples": 10, "num_steps": 1500, "final_num_samples": 500,
-              "guide": (SigmoidPosteriorGuide, {"mu_init": torch.tensor([1., 10.]),
-                                                "scale_tril_init": torch.tensor([[1., 0.], [0., 20.]]),
-                                                "tikhonov_init": -2.}),
+             {"num_samples": 10, "num_steps": 350, "final_num_samples": 500,
+              "guide": (SigmoidLocationPosteriorGuide, {"prior_mean": torch.tensor([-20.]),
+                                                        "scale_tril_init": 20.,
+                                                        "multiplier": torch.tensor([1.])}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
-            # TODO why is iwae performance here worse than NMC? Must be a badly chosen posterior
-            # Yes look at the prior means!
             (iwae,
-             {"num_samples": [5, 1], "num_steps": 1000, "final_num_samples": [20*20, 60],
-              "guide": (SigmoidPosteriorGuide, {"mu_init": torch.tensor([1., 10.]),
-                                                "scale_tril_init": torch.tensor([[1., 0.], [0., 20.]]),
-                                                "tikhonov_init": -2.}),
+             {"num_samples": [10, 1], "num_steps": 140, "final_num_samples": [100, 50],
+              "guide": (SigmoidLocationPosteriorGuide, {"prior_mean": torch.tensor([-20.]),
+                                                        "scale_tril_init": 20.,
+                                                        "multiplier": torch.tensor([1.])}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (marginal,
-             {"num_samples": 10, "num_steps": 3000, "final_num_samples": 500,
-              "guide": (SigmoidMarginalGuide, {"mu_init": 0., "sigma_init": 3.}),
+             {"num_samples": 10, "num_steps": 3000, "final_num_samples": 2000,
+              "guide": (SigmoidMarginalGuide, {"mu_init": 0., "sigma_init": 20.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (lfire,
+             {"num_theta_samples": 60, "num_y_samples": 2, "num_steps": 500, "final_num_samples": 100,
+              "classifier": (SigmoidLocationClassifier, {"scale_tril_init": 1 / 20., "ntheta": 60,
+                                                         "multiplier": torch.tensor([1.])}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (laplace,
+             {"num_steps": 500,
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.5}}),
+              "loss": TraceEnum_ELBO(max_iarange_nesting=2).differentiable_loss,
+              "guide": (LinearModelDiagLaplaceGuide, {"init_value": -20.0}),
+              "final_num_samples": 10}),
         ],
         ["sigmoid", "no_re", "location", "explicit_grid"]
     ),
@@ -463,6 +495,63 @@ CASES = [
         ],
         ["lm", "ground_truth", "re", "circle", "small_n"]
     ),
+    #############################################################################################################
+    # Nonlinear regression
+    #############################################################################################################
+    Case(
+        "Nonlinear regression with sinusoid",
+        (sinusoid_regression, {"amplitude_alpha": torch.tensor(3.),
+                               "amplitude_beta": torch.tensor(3.),
+                               "shift_mean": torch.tensor(0.),
+                               "shift_sd": torch.tensor(.1),
+                               "observation_sd": torch.tensor(.01)}),
+        line_40d_1p,
+        "y",
+        ["amplitude", "shift"],
+        [
+            (nmc, {"N": 100*100, "M": 100}),
+            # (posterior_lm,
+            #  {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
+            #   "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+            #   "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            # (iwae,
+            #  {"num_samples": 10, "num_steps": 800, "final_num_samples": 500, "M": 1,
+            #   "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+            #   "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (marginal,
+             {"num_samples": 10, "num_steps": 2000, "final_num_samples": 500,
+              "guide": (NormalMarginalGuide, {"mu_init": 0., "sigma_init": 1.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+        ],
+        ["no_re", "nonlinear", "sinusoid", "explicit_grid"]
+    ),
+    Case(
+        "Nonlinear regression with Gaussian kernel",
+        (gk_regression, {"centre_mean": torch.tensor([1.]),
+                         "centre_scale_tril": torch.tensor([[.1]]),
+                         "scale_alpha": torch.tensor(.0001),
+                         "scale_beta": torch.tensor(0.01),
+                         "observation_sd": torch.tensor(2.)}),
+        short_line_20d_1p,
+        "y",
+        ["centre", "scale"],
+        [
+            (nmc, {"N": 100*100, "M": 100}),
+            # (posterior_lm,
+            #  {"num_samples": 10, "num_steps": 1200, "final_num_samples": 500,
+            #   "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+            #   "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            # (iwae,
+            #  {"num_samples": 10, "num_steps": 800, "final_num_samples": 500, "M": 1,
+            #   "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
+            #   "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (marginal,
+             {"num_samples": 10, "num_steps": 2000, "final_num_samples": 500,
+              "guide": (NormalMarginalGuide, {"mu_init": 0., "sigma_init": 3.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+        ],
+        ["no_re", "nonlinear", "gk"]
+    ),
 ]
 
 
@@ -521,7 +610,7 @@ def main(case_tags, estimator_tags, num_runs, num_parallel, experiment_name):
                             param_func, param_params = value
                             # Communicate some size attributes to the guide
                             if "guide" in key or "classifier" in key:
-                                param_params.update({"d": expanded_design.shape[:2],
+                                param_params.update({"d": expanded_design.shape[:-2],
                                                      "w_sizes": model.w_sizes,
                                                      "y_sizes": {model.observation_label: expanded_design.shape[-2]}})
                             results["estimator_params"][key] = param_params
