@@ -64,6 +64,7 @@ def main(fnames, findices, plot):
         raise ValueError("No matching files found")
 
     results_dict = defaultdict(lambda: defaultdict(list))
+    typs = {}
     for fname in fnames:
         with open(fname, 'rb') as results_file:
             try:
@@ -89,7 +90,8 @@ def main(fnames, findices, plot):
                         output['Optimized EIG'] = eig_star
                         output["EIG gap"] = eig_star - eig_mean
                     # TODO deal with incorrect order of stream
-                    results_dict[results['typ']][results['run']].append(output)
+                    results_dict[fname][results['run']].append(output)
+                    typs[fname] = results['typ']
             except EOFError:
                 continue
 
@@ -113,7 +115,7 @@ def main(fnames, findices, plot):
                 plt.plot(x, centre, linestyle='-', markersize=6, color=COLOURS[i], marker='o')
                 plt.fill_between(x, upper, lower, color=COLOURS[i]+[.2])
             # plt.title(value_label, fontsize=18)
-            plt.legend(r.keys(), loc=1, fontsize=16)
+            plt.legend([typs[k] for k in r.keys()], loc=1, fontsize=16)
             plt.xlabel("Step", fontsize=18)
             plt.ylabel(value_label, fontsize=18)
             plt.xticks(fontsize=14)
