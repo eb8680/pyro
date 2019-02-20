@@ -19,6 +19,7 @@ COLOURS = {
            "Posterior": [31/255,120/255,180/255],
            "Posterior exact guide": [1, .4, .4],
            "Marginal": [51/255,160/255,44/255],
+           "Marginal (unbiased)": [51/255,160/255,44/255],
            "Marginal + likelihood": [.1, .7, .4],
            "Amortized LFIRE": [.66, .82, .43],
            "ALFIRE 2": [.3, .7, .9],
@@ -33,6 +34,7 @@ MARKERS = {
            "Posterior": 'o',
            "Posterior exact guide": 'x',
            "Marginal": 's',
+           "Marginal (unbiased)": 's',
            "Marginal + likelihood": 's',
            "Amortized LFIRE": 'D',
            "ALFIRE 2": 'D',
@@ -93,19 +95,19 @@ def main(fnames, findices, plot):
 
     if plot:
         for case, d in reformed.items():
-            plt.figure(figsize=(10, 5))
+            plt.figure(figsize=(12, 5))
             for k, (lower, centre, upper) in d.items():
-                #x = designs[case][:,0,0].numpy()
-                x = np.arange(0, centre.shape[0])
-                plt.plot(x, centre, linestyle='-', markersize=6, color=COLOURS[k], marker=MARKERS[k])
-                plt.fill_between(x, upper, lower, color=COLOURS[k]+[.15])
+                x = designs[case][:,0,0].numpy()
+                #x = np.arange(0, centre.shape[0])
+                plt.plot(x, centre, linestyle='-', markersize=8, color=COLOURS[k], marker=MARKERS[k], linewidth=2)
+                # plt.fill_between(x, upper, lower, color=COLOURS[k]+[.15])
             #plt.title(case, fontsize=18)
-            plt.legend(d.keys(), loc=2, fontsize=14)
-            plt.xlabel("Design $n_A$", fontsize=18)
-            plt.ylabel("EIG estimate", fontsize=18)
-            plt.xticks(fontsize=14)
+            plt.legend(d.keys(), loc=1, fontsize=16, frameon=False)
+            plt.xlabel("Design $d$", fontsize=22)
+            plt.ylabel("EIG estimate", fontsize=22)
+            plt.xticks(fontsize=16)
             plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
-            plt.yticks(fontsize=14)
+            plt.yticks(fontsize=16)
             plt.show()
     else:
         print(reformed)
