@@ -10,25 +10,25 @@ from pyro.contrib.glmm.guides import NormalMarginalGuide, NormalLikelihoodGuide
 
 class LinearModelAmortizedClassifier(nn.Module):
 
-    def __init__(self, d, w_sizes, y_sizes, scale_tril_init=3., **kwargs):
+    def __init__(self, d, w_sizes, y_sizes, regressor_init=-3., i_scale_tril_init=3., **kwargs):
         super(LinearModelAmortizedClassifier, self).__init__()
         n = sum(y_sizes.values())
+        p = sum(w_sizes.values())
         self.w_sizes = w_sizes
         self.bias = nn.Parameter(torch.zeros(*d))
-        self.linear = nn.Parameter(torch.zeros(*d, n))
-        self.bilinear = nn.Parameter(scale_tril_init*lexpand(torch.eye(n), *d))
+        self.regressor = nn.Parameter(regressor_init * torch.ones(*d, p, n))
+        self.i_scale_tril = nn.Parameter(i_scale_tril_init * lexpand(torch.eye(p), *d))
+        self.softplus = nn.Softplus()
 
     def forward(self, design, trace, observation_labels, target_labels):
         y_dict = {l: trace.nodes[l]["value"] for l in observation_labels}
         y = torch.cat(list(y_dict.values()), dim=-1)
         theta_dict = {l: trace.nodes[l]["value"] for l in target_labels}
         theta = torch.cat(list(theta_dict.values()), dim=-1)
-        indices = get_indices(target_labels, self.w_sizes)
-        subdesign = design[..., indices]
-        centre = rmv(subdesign, theta)
 
-        a = rmv(rtril(self.bilinear), y - centre)
-        return self.bias + rvv(self.linear, y - centre) - rvv(a, a)
+        posterior_mean = rmv(self.softplus(self.regressor), y)
+        a = rmv(rtril(self.i_scale_tril), theta - posterior_mean)
+        return -rvv(a, a)
 
 
 class LinearModelBootstrapClassifier(nn.Module):
@@ -81,6 +81,41 @@ class LinearModelClassifier(nn.Module):
         return self.bias - rvv(a, a)
 
 
+class SigmoidLocationAmortizedClassifier(nn.Module):
+
+    def __init__(self, d, w_sizes, y_sizes, multiplier, scale_tril_init=3., **kwargs):
+        super(SigmoidLocationAmortizedClassifier, self).__init__()
+        n = sum(y_sizes.values())
+        self.w_sizes = w_sizes
+        self.bias0 = nn.Parameter(torch.zeros(*d))
+        self.bias1 = nn.Parameter(torch.zeros(*d))
+        self.offset = nn.Parameter(torch.zeros(*d, n))
+        self.offset0 = nn.Parameter(torch.zeros(*d, n))
+        self.offset1 = nn.Parameter(torch.zeros(*d, n))
+        self.bilinear = nn.Parameter(scale_tril_init * lexpand(torch.eye(n), *d))
+        self.bilinear0 = nn.Parameter(scale_tril_init * lexpand(torch.eye(n), *d))
+        self.bilinear1 = nn.Parameter(scale_tril_init * lexpand(torch.eye(n), *d))
+        self.multiplier = multiplier
+
+        # TODO read from torch float specs
+        self.epsilon = torch.tensor(2 ** -24)
+
+    def forward(self, design, trace, observation_labels, target_labels):
+        theta_dict = {l: trace.nodes[l]["value"] for l in target_labels}
+        theta = torch.cat(list(theta_dict.values()), dim=-1)
+        y_dict = {l: trace.nodes[l]["value"] for l in observation_labels}
+        test_point = rvv(design, self.multiplier)
+        y = torch.cat(list(y_dict.values()), dim=-1)
+        mask0 = (y <= self.epsilon).squeeze(-1).float()
+        mask1 = (1. - y <= self.epsilon).squeeze(-1).float()
+        y_trans = y.log() - (1. - y).log()
+        eta = test_point - y_trans
+
+        a = rmv(rtril(self.bilinear + rexpand(mask0, 1, 1) * self.bilinear0 + rexpand(mask1, 1, 1) * self.bilinear1),
+                theta - eta + self.offset + rexpand(mask0, 1) * self.offset0 + rexpand(mask1, 1) * self.offset1)
+        return -rvv(a, a) + mask0 * self.bias0 + mask1 * self.bias1
+
+
 class SigmoidLocationClassifier(nn.Module):
 
     def __init__(self, d, ntheta, w_sizes, y_sizes, multiplier, scale_tril_init=3., **kwargs):
@@ -108,3 +143,21 @@ class SigmoidLocationClassifier(nn.Module):
 
         a = rmv(rtril(self.bilinear), eta - self.offset)
         return self.bias - rvv(a, a) + mask0 * self.bias0 + mask1 * self.bias1
+
+
+class LogisticExtrapolationClassifier(nn.Module):
+
+    def __init__(self, d, **kwargs):
+        super(LogisticExtrapolationClassifier, self).__init__()
+        self.bias = nn.Parameter(torch.zeros(*d))
+        self.weight_y = nn.Parameter(torch.zeros(*d))
+        self.weight_t = nn.Parameter(torch.zeros(*d))
+        self.weight_ty = nn.Parameter(torch.zeros(*d))
+
+    def forward(self, design, trace, observation_labels, target_labels):
+        y_dict = {l: trace.nodes[l]["value"] for l in observation_labels}
+        y = torch.cat(list(y_dict.values()), dim=-1).squeeze(-1)
+        t_dict = {l: trace.nodes[l]["value"] for l in target_labels}
+        t = torch.cat(list(t_dict.values()), dim=-1).squeeze(-1)
+
+        return y * self.weight_y + t * self.weight_t + y*t*self.weight_ty + self.bias

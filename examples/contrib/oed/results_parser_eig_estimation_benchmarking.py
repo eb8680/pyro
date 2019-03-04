@@ -27,6 +27,7 @@ COLOURS = {
            "LFIRE 2": [.78, .40, .8],
            "IWAE": [106/255,61/255,154/255],
            "Laplace": [255/255,127/255,0],
+           "Donsker-Varadhan": [.44, .44, .44]
 }
 MARKERS = {
            "Ground truth": 'x',
@@ -42,6 +43,7 @@ MARKERS = {
            "LFIRE 2": 'D',
            "IWAE": '+',
            "Laplace": '*',
+           "Donsker-Varadhan": "^"
 }
 
 

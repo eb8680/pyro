@@ -192,6 +192,46 @@ def sigmoid_model_gamma(coef1_mean, coef1_sd, coef2_mean, coef2_sd, observation_
     return model
 
 
+def logistic_extrapolation(coef_means, coef_sds, target_design, coef_labels="w", observation_label="y",
+                           target_label="target"):
+    if not isinstance(coef_means, list):
+        coef_means = [coef_means]
+    if not isinstance(coef_sds, list):
+        coef_sds = [coef_sds]
+    if not isinstance(coef_labels, list):
+        coef_labels = [coef_labels]
+
+    def model(design):
+        batch_shape = design.shape[:-2]
+        with ExitStack() as stack:
+            for iarange in iter_iaranges_to_shape(batch_shape):
+                stack.enter_context(iarange)
+
+            # Build the regression coefficient
+            w = []
+            # Allow different names for different coefficient groups
+            # Process fixed effects
+            for name, coef_mean, coef_sd in zip(coef_labels, coef_means, coef_sds):
+                shape = batch_shape + (coef_mean.shape[-1],)
+                # Place a normal prior on the regression coefficient
+                w_prior = dist.Normal(coef_mean.expand(shape), coef_sd.expand(shape)).independent(1)
+                w.append(pyro.sample(name, w_prior))
+
+            # Regression coefficient `w` is batch x p
+            w = broadcast_cat(w)
+            # Sample the target
+            td_shape = batch_shape + target_design.shape[-2:]
+            pyro.sample(target_label, dist.Bernoulli(logits=rmv(target_design.expand(td_shape), w)).independent(1))
+            # Sample the observation
+            return pyro.sample(observation_label, dist.Bernoulli(logits=rmv(design, w)).independent(1))
+
+    model.w_sds = OrderedDict([(label, sd) for label, sd in zip(coef_labels, coef_sds)])
+    model.w_sizes = OrderedDict([(label, sd.shape[-1]) for label, sd in zip(coef_labels, coef_sds)])
+    model.observation_label = observation_label
+    model.coef_labels = coef_labels
+    return model
+
+
 def sigmoid_model_fixed(coef_means, coef_sds, observation_sd, coef_labels="w", observation_label="y"):
 
     if not isinstance(coef_means, list):

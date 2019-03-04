@@ -18,19 +18,21 @@ from pyro.contrib.oed.eig import (
 from pyro.contrib.util import lexpand
 from pyro.contrib.oed.util import (
     linear_model_ground_truth, vi_eig_lm, vi_eig_mc, ba_eig_lm, ba_eig_mc, normal_inverse_gamma_ground_truth,
-    laplace_vi_eig_mc, 
+    laplace_vi_eig_mc, logistic_extrapolation_ground_truth, ba_eig_extrap
 )
 from pyro.contrib.glmm import (
     group_assignment_matrix, normal_inverse_gamma_linear_model, sigmoid_model_fixed, known_covariance_linear_model,
-    logistic_regression_model, sigmoid_location_model
+    logistic_regression_model, sigmoid_location_model, logistic_extrapolation
 )
 from pyro.contrib.glmm.guides import (
     LinearModelPosteriorGuide, NormalInverseGammaPosteriorGuide, SigmoidPosteriorGuide, GuideDV, LogisticPosteriorGuide,
     LogisticMarginalGuide, LogisticLikelihoodGuide, SigmoidMarginalGuide, SigmoidLikelihoodGuide,
     NormalMarginalGuide, NormalLikelihoodGuide, SigmoidLocationPosteriorGuide, LinearModelLaplaceGuide,
+    LogisticExtrapolationLikelihoodGuide, LogisticExtrapolationPosteriorGuide
 )
 from pyro.contrib.glmm.classifiers import (
-    LinearModelAmortizedClassifier, LinearModelBootstrapClassifier, LinearModelClassifier, SigmoidLocationClassifier
+    LinearModelAmortizedClassifier, LinearModelBootstrapClassifier, LinearModelClassifier, SigmoidLocationClassifier,
+    LogisticExtrapolationClassifier, SigmoidLocationAmortizedClassifier
 )
 from examples.contrib.oed.nonlinear_regression import sinusoid_regression, gk_regression
 
@@ -95,6 +97,9 @@ loc_20d_1n_1p = torch.linspace(-80., 80., 20).unsqueeze(-1).unsqueeze(-1)
 line_40d_1p = torch.linspace(0., 4*np.pi, 40).unsqueeze(-1).unsqueeze(-1)
 short_line_20d_1p = torch.linspace(-1., 1., 20).unsqueeze(-1).unsqueeze(-1)
 
+# Extrapolation designs
+extrap_design = torch.stack([-1.*torch.ones(20), torch.linspace(-5., 5., 20)], dim=-1).unsqueeze(-2)
+
 ########################################################################################
 # Aux
 ########################################################################################
@@ -113,6 +118,7 @@ nmc = Estimator("Nested Monte Carlo", ["nmc", "naive_rainforth", "explicit"], na
 nnmc = Estimator("Non-nested Monte Carlo", ["nnmc", "accelerated_rainforth", "explicit"], accelerated_rainforth_eig)
 posterior_lm = Estimator("Posterior", ["posterior", "gibbs", "ba", "lm", "explicit", "implicit"], ba_eig_lm)
 posterior_mc = Estimator("Posterior", ["posterior", "gibbs", "ba", "explicit", "implicit"], ba_eig_mc)
+posterior_extrap = Estimator("Posterior", ["posterior", "gibbs", "ba", "explicit", "implicit"], ba_eig_extrap)
 marginal = Estimator("Marginal", ["marginal", "gibbs", "explicit"], gibbs_y_eig)
 marginal_re = Estimator("Marginal + likelihood", ["marginal_re", "marginal_likelihood", "gibbs", "implicit"],
                         gibbs_y_re_eig)
@@ -120,6 +126,7 @@ alfire = Estimator("Amortized LFIRE", ["alfire"], amortized_lfire_eig)
 lfire = Estimator("LFIRE", ["lfire", "implicit"], lfire_eig)
 iwae = Estimator("IWAE", ["iwae", "explicit"], iwae_eig)
 laplace = Estimator("Laplace", ["laplace", "diag_laplace", "explicit"], laplace_vi_eig_mc)
+dv = Estimator("Donsker-Varadhan", ["dv", "implicit"], donsker_varadhan_eig)
 
 Case = namedtuple("EIGBenchmarkingCase", [
     "title",
@@ -222,8 +229,8 @@ CASES = [
         [
             (nmc, {"N": 135*135, "M": 135}),
             (posterior_lm,
-             {"num_samples": 10, "num_steps": 1800, "final_num_samples": 500,
-              "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2.,
+             {"num_samples": 10, "num_steps": 2500, "final_num_samples": 500,
+              "guide": (LinearModelPosteriorGuide, {"regressor_init": -3.,
                                                     "scale_tril_init": torch.tensor([[10., 0.], [0., 1/.55]])}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             # TODO: fix analytic entropy
@@ -232,8 +239,8 @@ CASES = [
             #   "guide": (LinearModelGuide, {"tikhonov_init": -2., "scale_tril_init": 3.}),
             #   "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (iwae,
-             {"num_samples": [10, 1], "num_steps": 1000, "final_num_samples": [500, 1],
-              "guide": (LinearModelPosteriorGuide, {"tikhonov_init": -2.,
+             {"num_samples": [10, 1], "num_steps": 1400, "final_num_samples": [500, 1],
+              "guide": (LinearModelPosteriorGuide, {"regressor_init": -3.,
                                                     "scale_tril_init": torch.tensor([[10., 0.], [0., 1/.55]])}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (marginal,
@@ -254,8 +261,8 @@ CASES = [
               "classifier": (LinearModelBootstrapClassifier, {"scale_tril_init": 3.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (lfire,
-             {"num_theta_samples": 60, "num_y_samples": 2, "num_steps": 1200, "final_num_samples": 100,
-              "classifier": (LinearModelClassifier, {"scale_tril_init": 1/3., "ntheta": 60}),
+             {"num_theta_samples": 6, "num_y_samples": 1, "num_steps": 1200, "final_num_samples": 100,
+              "classifier": (LinearModelClassifier, {"scale_tril_init": 1/3., "ntheta": 6}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (laplace,
              {"num_steps": 1000,
@@ -263,6 +270,11 @@ CASES = [
               "loss": TraceEnum_ELBO(max_iarange_nesting=2).differentiable_loss,
               "guide": (LinearModelLaplaceGuide, {}),
               "final_num_samples": 6}),
+            (dv,
+             {"num_samples": 40, "num_steps": 550, "final_num_samples": 500,
+              "T": (LinearModelAmortizedClassifier, {"regressor_init": -3.,
+                                                     "i_scale_tril_init": torch.tensor([[.1, 0.], [0., .55]])}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.01}})}),
             (truth_lm, {}),
         ],
         ["lm", "ground_truth", "no_re", "ab_test", "small_n", "lmab", "explicit_grid"]
@@ -349,8 +361,8 @@ CASES = [
               "guide": (SigmoidMarginalGuide, {"mu_init": 0., "sigma_init": 20.}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (lfire,
-             {"num_theta_samples": 60, "num_y_samples": 2, "num_steps": 500, "final_num_samples": 100,
-              "classifier": (SigmoidLocationClassifier, {"scale_tril_init": 1 / 20., "ntheta": 60,
+             {"num_theta_samples": 35, "num_y_samples": 1, "num_steps": 500, "final_num_samples": 100,
+              "classifier": (SigmoidLocationClassifier, {"scale_tril_init": 1 / 20., "ntheta": 35,
                                                          "multiplier": torch.tensor([1.])}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
             (laplace,
@@ -359,8 +371,13 @@ CASES = [
               "loss": TraceEnum_ELBO(max_iarange_nesting=2).differentiable_loss,
               "guide": (LinearModelLaplaceGuide, {"init_value": -20.0}),
               "final_num_samples": 10}),
+            (dv,
+             {"num_samples": 40, "num_steps": 500, "final_num_samples": 500,
+              "T": (SigmoidLocationAmortizedClassifier, {"scale_tril_init": 1 / 20.,
+                                                         "multiplier": torch.tensor([1.])}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.01}})}),
         ],
-        ["sigmoid", "no_re", "location", "explicit_grid"]
+        ["sigmoid", "no_re", "location", "explicit_grid", "lf"]
     ),
     Case(
         "Sigmoid with random effects",
@@ -551,6 +568,37 @@ CASES = [
         ],
         ["no_re", "nonlinear", "gk"]
     ),
+    ####################################################################################################
+    # Extrapolation
+    ####################################################################################################
+    Case(
+        "Logistic extrapolation",
+        (logistic_extrapolation, {"coef_means": torch.tensor([1., 1.]),
+                                  "coef_sds": torch.tensor([1., 1.]),
+                                  "target_design": torch.tensor([1., -1/2.]).unsqueeze(0)}),
+        extrap_design,
+        "y",
+        "target",
+        [
+            (posterior_extrap,
+             {"num_samples": 10, "num_steps": 5000, "final_num_samples": 1000,
+              "guide": (LogisticExtrapolationPosteriorGuide, {"target_sizes": {"target": 1}}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            (marginal_re,
+             {"num_samples": 10, "num_steps": 4500, "final_num_samples": 1000,
+              "marginal_guide": (LogisticMarginalGuide, {"p_logit_init": 0.}),
+              "cond_guide": (LogisticExtrapolationLikelihoodGuide, {}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.05}})}),
+            # LFIRE  Does not apply: cannot sample y|theta
+            (dv,
+             {"num_samples": 40, "num_steps": 1100, "final_num_samples": 1000,
+              "T": (LogisticExtrapolationClassifier, {}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.01}})}),
+            (Estimator("Ground truth", ["truth"], logistic_extrapolation_ground_truth),
+             {"num_samples": 100000, "ythetaspace": {"y": torch.tensor([0., 0., 1., 1.]), "target": torch.tensor([0., 1., 0., 1.])}}),
+        ],
+        ["extrap"]
+    )
 ]
 
 
@@ -608,7 +656,7 @@ def main(case_tags, estimator_tags, num_runs, num_parallel, experiment_name):
                         if isinstance(value, tuple):
                             param_func, param_params = value
                             # Communicate some size attributes to the guide
-                            if "guide" in key or "classifier" in key:
+                            if "guide" in key or "classifier" in key or key == "T":
                                 param_params.update({"d": expanded_design.shape[:-2],
                                                      "w_sizes": model.w_sizes,
                                                      "y_sizes": {model.observation_label: expanded_design.shape[-2]}})

@@ -20,7 +20,7 @@ except ImportError:
 
 class LinearModelPosteriorGuide(nn.Module):
 
-    def __init__(self, d, w_sizes, tikhonov_init=-2., scale_tril_init=3., **kwargs):
+    def __init__(self, d, w_sizes, y_sizes, regressor_init=0., scale_tril_init=3., **kwargs):
         """
         Guide for linear models. No amortisation happens over designs.
         Amortisation over data is taken care of by analytic formulae for
@@ -37,14 +37,14 @@ class LinearModelPosteriorGuide(nn.Module):
         # To avoid this- combine labels
         if not isinstance(d, (tuple, list, torch.Tensor)):
             d = (d,)
-        self.tikhonov_diag = nn.Parameter(
-                tikhonov_init*torch.ones(*d, sum(w_sizes.values())))
-        self.scaled_prior_mean = nn.Parameter(torch.zeros(*d, sum(w_sizes.values())))
+        self.regressor = {l: nn.Parameter(
+                regressor_init * torch.ones(*d, p, sum(y_sizes.values()))) for l, p in w_sizes.items()}
         self.scale_tril = {l: nn.Parameter(
-                scale_tril_init*lexpand(torch.eye(p), *d)) for l, p in w_sizes.items()}
+                scale_tril_init * lexpand(torch.eye(p), *d)) for l, p in w_sizes.items()}
         # This registers the dict values in pytorch
         # Await new version to use nn.ParamterDict
-        self._registered = nn.ParameterList(self.scale_tril.values())
+        self._registered_re = nn.ParameterList(self.regressor.values())
+        self._registered_st = nn.ParameterList(self.scale_tril.values())
         self.w_sizes = w_sizes
         self.softplus = nn.Softplus()
 
@@ -55,13 +55,7 @@ class LinearModelPosteriorGuide(nn.Module):
 
     def linear_model_formula(self, y, design, target_labels):
 
-        tikhonov_diag = rdiag(torch.exp(self.tikhonov_diag))
-        xtx = torch.matmul(design.transpose(-1, -2), design) + tikhonov_diag
-        xtxi = rinverse(xtx, sym=True)
-        mu = rmv(xtxi, rmv(design.transpose(-1, -2), y) + self.scaled_prior_mean)
-
-        # Extract sub-indices
-        mu = tensor_to_dict(self.w_sizes, mu, subset=target_labels)
+        mu = {l: rmv(self.softplus(self.regressor[l]), y) for l in target_labels}
         scale_tril = {l: rtril(self.scale_tril[l]) for l in target_labels}
 
         return mu, scale_tril
@@ -353,6 +347,29 @@ class NormalInverseGammaPosteriorGuide(LinearModelPosteriorGuide):
                 pyro.sample(label, w_dist)
 
 
+class LogisticExtrapolationPosteriorGuide(nn.Module):
+
+    def __init__(self, d, target_sizes, **kwargs):
+
+        super(LogisticExtrapolationPosteriorGuide, self).__init__()
+
+        self.logit0 = {l: nn.Parameter(torch.zeros(*d, p)) for l, p in target_sizes.items()}
+        self.logit1 = {l: nn.Parameter(torch.zeros(*d, p)) for l, p in target_sizes.items()}
+        self._registered0 = nn.ParameterList(self.logit0.values())
+        self._registered1 = nn.ParameterList(self.logit1.values())
+
+    def forward(self, y_dict, design, observation_labels, target_labels):
+
+        y = torch.cat(list(y_dict.values()), dim=-1)
+
+        pyro.module("posterior_guide", self)
+
+        for l in target_labels:
+
+            dst = dist.Bernoulli(logits=y * self.logit1[l] + (1. - y)*self.logit0[l]).independent(1)
+            pyro.sample(l, dst)
+
+
 class NormalMarginalGuide(nn.Module):
 
     def __init__(self, d, y_sizes, mu_init=0., sigma_init=3., **kwargs):
@@ -500,6 +517,19 @@ class LogisticLikelihoodGuide(nn.Module):
                     + self.sigmoid(scaled_centre + self.logit_offset[l] - self.softplus(self.logit_correction[l])))
             y_dist = dist.Bernoulli(p).independent(1)
             pyro.sample(l, y_dist)
+
+
+class LogisticExtrapolationLikelihoodGuide(LogisticExtrapolationPosteriorGuide):
+
+    def __init__(self, d, y_sizes, **kwargs):
+
+        super(LogisticExtrapolationLikelihoodGuide, self).__init__(
+            d=d, target_sizes=y_sizes, **kwargs
+        )
+
+    def forward(self, theta_dict, design, observation_labels, target_labels):
+        return super(LogisticExtrapolationLikelihoodGuide, self).forward(theta_dict, design, target_labels,
+                                                                         observation_labels)
 
 
 class GuideDV(nn.Module):

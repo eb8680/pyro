@@ -4,9 +4,10 @@ import torch
 import math
 
 import pyro
-from pyro.contrib.util import get_indices, lexpand
+import pyro.poutine as poutine
+from pyro.contrib.util import get_indices, lexpand, rexpand
 from pyro.contrib.glmm import analytic_posterior_cov
-from pyro.contrib.oed.eig import barber_agakov_ape, vi_ape, laplace_vi_ape
+from pyro.contrib.oed.eig import barber_agakov_ape, vi_ape, laplace_vi_ape, xexpx, logsumexp
 
 
 def normal_inverse_gamma_ground_truth(model, design, observation_labels, target_labels, eig=True):
@@ -39,6 +40,29 @@ def linear_model_ground_truth(model, design, observation_labels, target_labels, 
         return torch.tensor([0.5*torch.logdet(2*math.pi*math.e*C) for C in target_posterior_covs]).view(design_shape[:-2])
 
 
+def logistic_extrapolation_ground_truth(model, design, observation_labels, target_labels, ythetaspace, num_samples=100):
+    if isinstance(target_labels, str):
+        target_labels = [target_labels]
+
+    expanded_design = lexpand(design, num_samples, 1)  # N copies of the model
+    shape = list(design.shape[:-1])
+    expanded_yspace = {k: rexpand(y, *shape) for k, y in ythetaspace.items()}
+    newmodel = pyro.condition(model, data=expanded_yspace)
+    trace = poutine.trace(newmodel).get_trace(expanded_design)
+    trace.compute_log_prob()
+
+    lpo = sum(trace.nodes[l]["log_prob"] for l in observation_labels)
+    lpt = sum(trace.nodes[l]["log_prob"] for l in target_labels)
+    lpj = lpo + lpt
+
+    # Joint
+    first_term = xexpx(logsumexp(lpj, 0) - math.log(num_samples)).sum(0)
+    # Product of marginals
+    second_term = xexpx(logsumexp(lpo, 0) - math.log(num_samples)).sum(0)/2 + xexpx(logsumexp(lpt, 0) - math.log(num_samples)).sum(0)/2
+
+    return first_term - second_term
+
+
 def lm_H_prior(model, design, observation_labels, target_labels):
     if isinstance(target_labels, str):
         target_labels = [target_labels]
@@ -59,6 +83,20 @@ def mc_H_prior(model, design, observation_labels, target_labels, num_samples=100
     trace.compute_log_prob()
     lp = sum(trace.nodes[l]["log_prob"] for l in target_labels)
     return -lp.sum(0)/num_samples
+
+
+def extrap_H_prior(model, design, observation_labels, target_labels, num_samples=10000):
+    if isinstance(target_labels, str):
+        target_labels = [target_labels]
+
+    expanded_design = lexpand(design, num_samples)
+    cm = pyro.condition(model, {"y": torch.ones(expanded_design.shape[:-1])})
+    trace = pyro.poutine.trace(cm).get_trace(expanded_design)
+    trace.compute_log_prob()
+    lp = sum(trace.nodes[l]["log_prob"] for l in target_labels)
+    log_p_hat = logsumexp(lp, 0) - math.log(num_samples)
+    log_1mp = torch.log(1. - torch.exp(log_p_hat))
+    return -xexpx(log_p_hat) - xexpx(log_1mp)
 
 
 def vi_eig_lm(model, design, observation_labels, target_labels, *args, **kwargs):
@@ -104,4 +142,13 @@ def ba_eig_mc(model, design, observation_labels, target_labels, *args, **kwargs)
         hprior = mc_H_prior(model, design, observation_labels, target_labels, kwargs["num_hprior_samples"])
     else:
         hprior = mc_H_prior(model, design, observation_labels, target_labels)
+    return hprior - barber_agakov_ape(model, design, observation_labels, target_labels, *args, **kwargs)
+
+
+def ba_eig_extrap(model, design, observation_labels, target_labels, *args, **kwargs):
+    # Compute the prior entropy my Monte Carlo, the uses barber_agakov_ape
+    if "num_hprior_samples" in kwargs:
+        hprior = extrap_H_prior(model, design, observation_labels, target_labels, kwargs["num_hprior_samples"])
+    else:
+        hprior = extrap_H_prior(model, design, observation_labels, target_labels)
     return hprior - barber_agakov_ape(model, design, observation_labels, target_labels, *args, **kwargs)

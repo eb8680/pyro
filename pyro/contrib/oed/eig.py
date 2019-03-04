@@ -500,12 +500,12 @@ def donsker_varadhan_loss(model, T, observation_labels, target_labels):
 
     ewma_log = EwmaLog(alpha=0.90)
 
-    try:
-        pyro.module("T", T)
-    except AssertionError:
-        pass
-
     def loss_fn(design, num_particles, **kwargs):
+
+        try:
+            pyro.module("T", T)
+        except AssertionError:
+            pass
 
         expanded_design = lexpand(design, num_particles)
 
