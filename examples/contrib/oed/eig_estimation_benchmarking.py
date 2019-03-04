@@ -1,5 +1,6 @@
 from __future__ import absolute_import, division, print_function
 
+import os
 import argparse
 from collections import namedtuple
 import time
@@ -30,11 +31,12 @@ from pyro.contrib.glmm.guides import (
     NormalMarginalGuide, NormalLikelihoodGuide, SigmoidLocationPosteriorGuide, LinearModelLaplaceGuide,
     LogisticExtrapolationLikelihoodGuide, LogisticExtrapolationPosteriorGuide
 )
-from pyro.contrib.glmm.classifiers import (
+from pyro.contrib.glmm.critics import (
     LinearModelAmortizedClassifier, LinearModelBootstrapClassifier, LinearModelClassifier, SigmoidLocationClassifier,
-    LogisticExtrapolationClassifier, SigmoidLocationAmortizedClassifier
+    LogisticExtrapolationClassifier, SigmoidLocationAmortizedClassifier, TurkAmortizedClassifier, TurkClassifier
 )
 from examples.contrib.oed.nonlinear_regression import sinusoid_regression, gk_regression
+from examples.contrib.oed.turk_benchmark import turk_designs, turk_model
 
 """
 Expected information gain estimation benchmarking
@@ -598,6 +600,38 @@ CASES = [
              {"num_samples": 100000, "ythetaspace": {"y": torch.tensor([0., 0., 1., 1.]), "target": torch.tensor([0., 1., 0., 1.])}}),
         ],
         ["extrap"]
+    ),
+    ####################################################################################################
+    # Turk benchmarking
+    ####################################################################################################
+    Case(
+        "Turk benchmarking",
+        (turk_model, {}),
+        turk_designs,
+        "y",
+        "fixed_effects",
+        [
+            (posterior_mc,
+             {"num_samples": 10, "num_steps": 3000, "final_num_samples": 10000,
+              "guide": (SigmoidPosteriorGuide, {"regressor_init": 0., "scale_tril_init": 10., "use_softplus": False}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.005}})}),
+            (marginal_re,
+             {"num_samples": 10, "num_steps": 5000, "final_num_samples": 5000,
+              "marginal_guide": (SigmoidMarginalGuide, {"mu_init": 0., "sigma_init": 30.}),
+              "cond_guide": (SigmoidLikelihoodGuide, {"mu_init": 0., "sigma_init": 15.}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.025}})}),
+            (dv,
+             {"num_samples": 40, "num_steps": 750, "final_num_samples": 1000,
+              "T": (TurkAmortizedClassifier, {"bilinear_init": .1}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.01}})}),
+            (lfire,
+             {"num_theta_samples": 30, "num_y_samples": 1, "num_steps": 2000, "final_num_samples": 1000,
+              "classifier": (TurkClassifier, {"bilinear_init": 0., "ntheta": 30}),
+              "optim": (optim.Adam, {"optim_args": {"lr": 0.025}})}),
+            (Estimator("Ground truth", ["truth"], naive_rainforth_eig),
+             {"N": 1250, "M": 500, "M_prime": 500, "independent_priors": True, "N_seq": 100}),
+        ],
+        ["turk"]
     )
 ]
 
@@ -609,6 +643,8 @@ def main(case_tags, estimator_tags, num_runs, num_parallel, experiment_name):
     else:
         experiment_name = output_dir+experiment_name
     results_file = experiment_name+'.result_stream.pickle'
+    if os.path.exists(results_file):
+        os.remove(results_file)
 
     print("Experiment", experiment_name)
     case_tags = case_tags.split(",")

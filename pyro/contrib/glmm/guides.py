@@ -20,7 +20,7 @@ except ImportError:
 
 class LinearModelPosteriorGuide(nn.Module):
 
-    def __init__(self, d, w_sizes, y_sizes, regressor_init=0., scale_tril_init=3., **kwargs):
+    def __init__(self, d, w_sizes, y_sizes, regressor_init=0., scale_tril_init=3., use_softplus=True, **kwargs):
         """
         Guide for linear models. No amortisation happens over designs.
         Amortisation over data is taken care of by analytic formulae for
@@ -46,6 +46,7 @@ class LinearModelPosteriorGuide(nn.Module):
         self._registered_re = nn.ParameterList(self.regressor.values())
         self._registered_st = nn.ParameterList(self.scale_tril.values())
         self.w_sizes = w_sizes
+        self.use_softplus = use_softplus
         self.softplus = nn.Softplus()
 
     def get_params(self, y_dict, design, target_labels):
@@ -55,7 +56,10 @@ class LinearModelPosteriorGuide(nn.Module):
 
     def linear_model_formula(self, y, design, target_labels):
 
-        mu = {l: rmv(self.softplus(self.regressor[l]), y) for l in target_labels}
+        if self.use_softplus:
+            mu = {l: rmv(self.softplus(self.regressor[l]), y) for l in target_labels}
+        else:
+            mu = {l: rmv(self.regressor[l], y) for l in target_labels}
         scale_tril = {l: rtril(self.scale_tril[l]) for l in target_labels}
 
         return mu, scale_tril
@@ -169,50 +173,18 @@ class LinearModelLaplaceGuide(nn.Module):
                     pyro.sample(l, w_dist)
 
 
-# Deprecated
 class SigmoidPosteriorGuide(LinearModelPosteriorGuide):
 
-    def __init__(self, d, w_sizes, scale_tril_init=3., mu_init=0., **kwargs):
-        super(SigmoidPosteriorGuide, self).__init__(d, w_sizes, scale_tril_init=scale_tril_init,
-                                                    **kwargs)
-        self.mu0 = {l: nn.Parameter(
-                mu_init*torch.ones(*d, p)) for l, p in w_sizes.items()}
-        self._registered_mu0 = nn.ParameterList(self.mu0.values())
-
-        self.mu1 = {l: nn.Parameter(
-                mu_init*torch.ones(*d, p)) for l, p in w_sizes.items()}
-        self._registered_mu1 = nn.ParameterList(self.mu1.values())
-
-        self.scale_tril0 = {l: nn.Parameter(
-                scale_tril_init*lexpand(torch.eye(p), *d)) for l, p in w_sizes.items()}
-        self._registered0 = nn.ParameterList(self.scale_tril0.values())
-
-        self.scale_tril1 = {l: nn.Parameter(
-                scale_tril_init*lexpand(torch.eye(p), *d)) for l, p in w_sizes.items()}
-        self._registered1 = nn.ParameterList(self.scale_tril1.values())
-
-        # TODO read from torch float specs
-        self.epsilon = torch.tensor(2 ** -24)
+    def __init__(self, *args, **kwargs):
+        super(SigmoidPosteriorGuide, self).__init__(*args, **kwargs)
 
     def get_params(self, y_dict, design, target_labels):
 
         # For values in (0, 1), we can perfectly invert the transformation
         y = torch.cat(list(y_dict.values()), dim=-1)
-        mask0 = (y <= self.epsilon).squeeze(-1)
-        mask1 = (1. - y <= self.epsilon).squeeze(-1)
         y_trans = y.log() - (1.-y).log()
 
-        mu, scale_tril = self.linear_model_formula(y_trans, design, target_labels)
-        scale_tril = {l: scale_tril[l].expand(mu[l].shape + (mu[l].shape[-1], )) for l in scale_tril}
-
-        for l in mu.keys():
-            mu[l] = mu[l] + (-mu[l] + self.mu0[l]) * rexpand(mask0.float(), 1)
-            mu[l] = mu[l] + (-mu[l] + self.mu1[l]) * rexpand(mask1.float(), 1)
-            scale_tril[l] = scale_tril[l] + (-scale_tril[l] + self.scale_tril0[l]) * rexpand(mask0.float(), 1, 1)
-            scale_tril[l] = scale_tril[l] + (-scale_tril[l] + self.scale_tril1[l]) * rexpand(mask1.float(), 1, 1)
-            scale_tril[l] = rtril(scale_tril[l])
-
-        return mu, scale_tril
+        return self.linear_model_formula(y_trans, design, target_labels)
 
 
 class SigmoidLocationPosteriorGuide(nn.Module):

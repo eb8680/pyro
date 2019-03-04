@@ -161,3 +161,53 @@ class LogisticExtrapolationClassifier(nn.Module):
         t = torch.cat(list(t_dict.values()), dim=-1).squeeze(-1)
 
         return y * self.weight_y + t * self.weight_t + y*t*self.weight_ty + self.bias
+
+
+class TurkAmortizedClassifier(nn.Module):
+
+    def __init__(self, d, w_sizes, y_sizes, bilinear_init=0., **kwargs):
+        super(TurkAmortizedClassifier, self).__init__()
+        self.w_sizes = w_sizes
+        n = sum(y_sizes.values())
+        self.bilinear = nn.Parameter(bilinear_init * torch.ones(*d, n, n))
+        self.log_multiplier = nn.Parameter(torch.zeros(*d, 1))
+
+        # TODO read from torch float specs
+        self.epsilon = torch.tensor(2 ** -24)
+
+    def forward(self, design, trace, observation_labels, target_labels):
+        theta_dict = {l: trace.nodes[l]["value"] for l in target_labels}
+        y_dict = {l: trace.nodes[l]["value"] for l in observation_labels}
+        y = torch.cat(list(y_dict.values()), dim=-1)
+        y_trans = y.log() - (1. - y).log()
+
+        theta = torch.cat(list(theta_dict.values()), dim=-1)
+        indices = get_indices(target_labels, self.w_sizes)
+        subdesign = design[..., indices]
+        centre = rmv(subdesign, theta)
+        scaled_centre = torch.exp(self.log_multiplier) * centre
+
+        a = rmv(rtril(self.bilinear), y_trans - scaled_centre)
+        return -rvv(a, a)
+
+
+class TurkClassifier(nn.Module):
+
+    def __init__(self, d, ntheta, w_sizes, y_sizes, bilinear_init=0., **kwargs):
+        super(TurkClassifier, self).__init__()
+        self.w_sizes = w_sizes
+        n = sum(y_sizes.values())
+        self.bilinear = nn.Parameter(bilinear_init * torch.ones(ntheta, *d))
+        self.centre = nn.Parameter(torch.zeros(ntheta, *d, n))
+        self.bias = nn.Parameter(torch.zeros(ntheta, *d))
+
+        # TODO read from torch float specs
+        self.epsilon = torch.tensor(2 ** -24)
+
+    def forward(self, design, trace, observation_labels, target_labels):
+        y_dict = {l: trace.nodes[l]["value"] for l in observation_labels}
+        y = torch.cat(list(y_dict.values()), dim=-1)
+        y_trans = y.log() - (1. - y).log()
+
+        a = y_trans - self.centre
+        return self.bilinear * rvv(a, a) + self.bias

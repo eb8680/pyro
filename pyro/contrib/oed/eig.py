@@ -117,7 +117,8 @@ def vi_ape(model, design, observation_labels, target_labels,
 
 
 def naive_rainforth_eig(model, design, observation_labels, target_labels=None,
-                        N=100, M=10, M_prime=None, independent_priors=False):
+                        N=100, M=10, M_prime=None, independent_priors=False,
+                        N_seq=1):
     """
     Naive Rainforth (i.e. Nested Monte Carlo) estimate of the expected information
     gain (EIG). The estimate is, when there are not any random effects,
@@ -157,6 +158,11 @@ def naive_rainforth_eig(model, design, observation_labels, target_labels=None,
         observation_labels = [observation_labels]
     if isinstance(target_labels, str):
         target_labels = [target_labels]
+
+    if N_seq > 1:
+        seqsum = sum(naive_rainforth_eig(model, design, observation_labels, target_labels, N, M, M_prime, independent_priors,
+                                         N_seq=1) for n in range(N_seq))
+        return seqsum/N_seq
 
     # Take N samples of the model
     expanded_design = lexpand(design, N)  # N copies of the model
