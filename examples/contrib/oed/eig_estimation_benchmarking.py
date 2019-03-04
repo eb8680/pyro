@@ -629,7 +629,7 @@ CASES = [
               "classifier": (TurkClassifier, {"bilinear_init": 0., "ntheta": 30}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.025}})}),
             (Estimator("Ground truth", ["truth"], naive_rainforth_eig),
-             {"N": 1000//18, "M": 11000, "M_prime": 11000, "independent_priors": True, "N_seq": 320}),
+             {"N": 100, "M": 10000, "M_prime": 10000, "independent_priors": True, "N_seq": 1}),
         ],
         ["turk"]
     )
@@ -643,8 +643,8 @@ def main(case_tags, estimator_tags, num_runs, num_parallel, experiment_name):
     else:
         experiment_name = output_dir+experiment_name
     results_file = experiment_name+'.result_stream.pickle'
-    if os.path.exists(results_file):
-        os.remove(results_file)
+    # if os.path.exists(results_file):
+    #     os.remove(results_file)
 
     print("Experiment", experiment_name)
     case_tags = case_tags.split(",")
