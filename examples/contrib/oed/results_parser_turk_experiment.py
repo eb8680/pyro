@@ -83,12 +83,12 @@ def main(fnames, findices, plot):
                         output["L2 distance"] = el2d.squeeze(-1)
                     output['Fixed effects @0'] = centered_fixed_effects[..., 0, 0]
                     output['Fixed effects @3'] = centered_fixed_effects[..., 0, 3]
-                    if 'estimation_surface' in results and results['estimation_surface'] is not None:
-                        eig_star, _ = torch.max(results['estimation_surface'], dim=1)
-                        eig_star = eig_star
-                        eig_mean = results['estimation_surface'].mean(1)
-                        output['Optimized EIG'] = eig_star
-                        output["EIG gap"] = eig_star - eig_mean
+                    # if 'estimation_surface' in results and results['estimation_surface'] is not None:
+                    #     eig_star, _ = torch.max(results['estimation_surface'], dim=1)
+                    #     eig_star = eig_star
+                    #     eig_mean = results['estimation_surface'].mean(1)
+                    #     output['Optimized EIG'] = eig_star
+                    #     output["EIG gap"] = eig_star - eig_mean
                     # TODO deal with incorrect order of stream
                     results_dict[fname][results['run']].append(output)
                     typs[fname] = results['typ']

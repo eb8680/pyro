@@ -83,7 +83,11 @@ def main(fnames, findices, plot):
                     case = results['case']
                     estimator = results['estimator_name']
                     run_num = results['run_num']
+                    # results['surface'][:, 0:18] = results['surface'][:, 0:18].mean()
+                    # results['surface'][:, 18:] = results['surface'][:, 18:].mean()
                     results_dict[case][estimator][run_num] = results['surface']
+                    # with open('./run_outputs/eig_benchmark/turktrue.result_stream.pickle', 'ab') as f:
+                    #     pickle.dump(results, f)
                     designs[case] = results['design']
             except EOFError:
                 continue

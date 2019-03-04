@@ -625,11 +625,11 @@ CASES = [
               "T": (TurkAmortizedClassifier, {"bilinear_init": .1}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.01}})}),
             (lfire,
-             {"num_theta_samples": 30, "num_y_samples": 1, "num_steps": 2000, "final_num_samples": 1000,
+             {"num_theta_samples": 30, "num_y_samples": 1, "num_steps": 1500, "final_num_samples": 1000,
               "classifier": (TurkClassifier, {"bilinear_init": 0., "ntheta": 30}),
               "optim": (optim.Adam, {"optim_args": {"lr": 0.025}})}),
             (Estimator("Ground truth", ["truth"], naive_rainforth_eig),
-             {"N": 1250, "M": 500, "M_prime": 500, "independent_priors": True, "N_seq": 100}),
+             {"N": 1000//18, "M": 11000, "M_prime": 11000, "independent_priors": True, "N_seq": 320}),
         ],
         ["turk"]
     )
