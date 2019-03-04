@@ -28,7 +28,7 @@ if __name__ == '__main__':
         print("Num steps", num_steps)
         pyro.clear_param_store()
         guide = LinearModelPosteriorGuide(tikhonov_init=10., scale_tril_init=torch.tensor([[10., 0.], [0., 1 / .55]]),
-                                          d=(10, 1), w_sizes=model.w_sizes)
+                                          d=(10, 1), w_sizes=model.w_sizes, y_sizes={"y": 10})
         iwae_eig(model, design, "y", "w", num_samples=(10, 1), num_steps=num_steps, guide=guide, optim=optim)
         for M in torch.logspace(0, math.log10(101), 10):
             M = int(M)
@@ -37,5 +37,5 @@ if __name__ == '__main__':
                                         num_steps=0, guide=guide, optim=optim)
 
             results = {"num_steps": num_steps, "M": M, "surface": eig_surface_iwae}
-            with open('run_outputs/nmc_iwae.result_stream.pickle', 'ab') as f:
+            with open('run_outputs/vnmc.result_stream.pickle', 'ab') as f:
                 pickle.dump(results, f)
