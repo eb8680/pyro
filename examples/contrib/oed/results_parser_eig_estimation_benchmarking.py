@@ -50,7 +50,6 @@ MARKERS = {
 def upper_lower(array):
     centre = array.mean(0)
     upper, lower = np.percentile(array, 95, axis=0), np.percentile(array, 5, axis=0)
-    # upper, lower = np.max(array, axis=0), np.min(array, axis=0)
     return lower, centre, upper
 
 
@@ -85,6 +84,8 @@ def main(fnames, findices, plot):
                     run_num = results['run_num']
                     # results['surface'][:, 0:18] = results['surface'][:, 0:18].mean()
                     # results['surface'][:, 18:] = results['surface'][:, 18:].mean()
+                    if run_num in results_dict[case][estimator]:
+                        run_num = 1 + max(results_dict[case][estimator].keys())
                     results_dict[case][estimator][run_num] = results['surface']
                     # with open('./run_outputs/eig_benchmark/turktrue.result_stream.pickle', 'ab') as f:
                     #     pickle.dump(results, f)
@@ -118,7 +119,7 @@ def main(fnames, findices, plot):
             plt.show()
     else:
         print(reformed)
-        truth = {case: torch.cat([d["Ground truth"][run] for run in d["Ground truth"]]) for case, d in results_dict.items()}
+        truth = {case: torch.cat([d["Ground truth"][run] for run in d["Ground truth"]]).mean(0) for case, d in results_dict.items()}
         # truth = defaultdict(lambda: 0)
         bias_var = {case: OrderedDict([
                         (estimator, bias_variance((torch.cat([v[run] for run in v]) - truth[case]).detach().numpy()))
