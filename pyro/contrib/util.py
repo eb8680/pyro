@@ -61,8 +61,10 @@ def rdiag(v):
     return rexpand(v, v.shape[-1])*torch.eye(v.shape[-1])
 
 
-def rtril(M, diagonal=0):
+def rtril(M, diagonal=0, upper=False):
     """Takes the lower-triangular of the rightmost 2 dimensions."""
+    if upper:
+        return rtril(M, diagonal=diagonal, upper=False).transpose(-1, -2)
     return M*torch.tril(torch.ones(M.shape[-2], M.shape[-1]), diagonal=diagonal)
 
 

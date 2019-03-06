@@ -27,7 +27,7 @@ class LinearModelAmortizedClassifier(nn.Module):
         theta = torch.cat(list(theta_dict.values()), dim=-1)
 
         posterior_mean = rmv(self.softplus(self.regressor), y)
-        a = rmv(rtril(self.i_scale_tril), theta - posterior_mean)
+        a = rmv(rtril(self.i_scale_tril, upper=True), theta - posterior_mean)
         return -rvv(a, a)
 
 
@@ -77,7 +77,7 @@ class LinearModelClassifier(nn.Module):
         y_dict = {l: trace.nodes[l]["value"] for l in observation_labels}
         y = torch.cat(list(y_dict.values()), dim=-1)
 
-        a = rmv(rtril(self.bilinear), y - self.offset)
+        a = rmv(rtril(self.bilinear, upper=True), y - self.offset)
         return self.bias - rvv(a, a)
 
 
@@ -111,7 +111,8 @@ class SigmoidLocationAmortizedClassifier(nn.Module):
         y_trans = y.log() - (1. - y).log()
         eta = test_point - y_trans
 
-        a = rmv(rtril(self.bilinear + rexpand(mask0, 1, 1) * self.bilinear0 + rexpand(mask1, 1, 1) * self.bilinear1),
+        a = rmv(rtril(self.bilinear + rexpand(mask0, 1, 1) * self.bilinear0 + rexpand(mask1, 1, 1) * self.bilinear1,
+                      upper=True),
                 theta - eta + self.offset + rexpand(mask0, 1) * self.offset0 + rexpand(mask1, 1) * self.offset1)
         return -rvv(a, a) + mask0 * self.bias0 + mask1 * self.bias1
 
@@ -141,7 +142,7 @@ class SigmoidLocationClassifier(nn.Module):
         y_trans = y.log() - (1. - y).log()
         eta = test_point - y_trans
 
-        a = rmv(rtril(self.bilinear), eta - self.offset)
+        a = rmv(rtril(self.bilinear, upper=True), eta - self.offset)
         return self.bias - rvv(a, a) + mask0 * self.bias0 + mask1 * self.bias1
 
 
@@ -187,7 +188,7 @@ class TurkAmortizedClassifier(nn.Module):
         centre = rmv(subdesign, theta)
         scaled_centre = torch.exp(self.log_multiplier) * centre
 
-        a = rmv(rtril(self.bilinear), y_trans - scaled_centre)
+        a = rmv(rtril(self.bilinear, upper=True), y_trans - scaled_centre)
         return -rvv(a, a)
 
 

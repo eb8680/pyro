@@ -54,7 +54,7 @@ def upper_lower(array):
 
 
 def bias_variance(array):
-    mean = array.mean(0).mean(0)
+    mean = (array.mean(0)**2).mean(0)
     var = (array.std(0)**2).mean(0)
     return mean, var
 
@@ -103,12 +103,12 @@ def main(fnames, findices, plot):
 
     if plot:
         for case, d in reformed.items():
-            plt.figure(figsize=(12, 5))
+            plt.figure(figsize=(8, 5))
             for k, (lower, centre, upper) in d.items():
-                #x = designs[case][:,0,0].numpy()
+                # x = designs[case][:,0,0].numpy()
                 x = np.arange(0, centre.shape[0])
                 plt.plot(x, centre, linestyle='-', markersize=8, color=COLOURS[k], marker=MARKERS[k], linewidth=2)
-                plt.fill_between(x, upper, lower, color=COLOURS[k]+[.15])
+                #plt.fill_between(x, upper, lower, color=COLOURS[k]+[.15])
             #plt.title(case, fontsize=18)
             plt.legend(d.keys(), loc=1, fontsize=16, frameon=False)
             plt.xlabel("Design $d$", fontsize=22)
@@ -119,8 +119,14 @@ def main(fnames, findices, plot):
             plt.show()
     else:
         print(reformed)
-        truth = {case: torch.cat([d["Ground truth"][run] for run in d["Ground truth"]]).mean(0) for case, d in results_dict.items()}
-        # truth = defaultdict(lambda: 0)
+        if "Ground truth" in list(results_dict.values())[0]:
+            truth = {case: torch.cat([d["Ground truth"][run] for run in d["Ground truth"]]).mean(0)
+                     for case, d in results_dict.items()}
+        elif "Marginal (unbiased)" in list(results_dict.values())[0]:
+            truth = {case: torch.cat([d["Marginal (unbiased)"][run] for run in d["Marginal (unbiased)"]]).mean(0)
+                     for case, d in results_dict.items()}
+        else:
+            truth = defaultdict(lambda: 0)
         bias_var = {case: OrderedDict([
                         (estimator, bias_variance((torch.cat([v[run] for run in v]) - truth[case]).detach().numpy()))
                         for estimator, v in sorted(d.items())])
