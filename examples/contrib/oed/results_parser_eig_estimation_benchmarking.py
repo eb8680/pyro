@@ -103,19 +103,19 @@ def main(fnames, findices, plot):
 
     if plot:
         for case, d in reformed.items():
-            plt.figure(figsize=(8, 5))
+            plt.figure(figsize=(8, 3))
             for k, (lower, centre, upper) in d.items():
-                # x = designs[case][:,0,0].numpy()
-                x = np.arange(0, centre.shape[0])
+                x = designs[case][:,0,0].numpy()
+                #x = np.arange(0, centre.shape[0])
                 plt.plot(x, centre, linestyle='-', markersize=8, color=COLOURS[k], marker=MARKERS[k], linewidth=2)
                 #plt.fill_between(x, upper, lower, color=COLOURS[k]+[.15])
             #plt.title(case, fontsize=18)
-            plt.legend(d.keys(), loc=1, fontsize=16, frameon=False)
-            plt.xlabel("Design $d$", fontsize=22)
-            plt.ylabel("EIG estimate", fontsize=22)
-            plt.xticks(fontsize=16)
+            plt.legend(d.keys(), loc=1, fontsize=14, frameon=False)
+            plt.xlabel("Design $d$", fontsize=20)
+            plt.ylabel("EIG estimate", fontsize=20)
+            plt.xticks(fontsize=14)
             plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
-            plt.yticks(fontsize=16)
+            plt.yticks(fontsize=14)
             plt.show()
     else:
         print(reformed)
