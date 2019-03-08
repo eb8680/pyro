@@ -150,7 +150,6 @@ class LogisticExtrapolationClassifier(nn.Module):
 
     def __init__(self, d, **kwargs):
         super(LogisticExtrapolationClassifier, self).__init__()
-        self.bias = nn.Parameter(torch.zeros(*d))
         self.weight_y = nn.Parameter(torch.zeros(*d))
         self.weight_t = nn.Parameter(torch.zeros(*d))
         self.weight_ty = nn.Parameter(torch.zeros(*d))
@@ -161,7 +160,7 @@ class LogisticExtrapolationClassifier(nn.Module):
         t_dict = {l: trace.nodes[l]["value"] for l in target_labels}
         t = torch.cat(list(t_dict.values()), dim=-1).squeeze(-1)
 
-        return y * self.weight_y + t * self.weight_t + y*t*self.weight_ty + self.bias
+        return y * self.weight_y + t * self.weight_t + y*t*self.weight_ty
 
 
 class TurkAmortizedClassifier(nn.Module):
