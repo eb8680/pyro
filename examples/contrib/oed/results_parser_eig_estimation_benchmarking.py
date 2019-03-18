@@ -110,7 +110,7 @@ def main(fnames, findices, plot):
                 plt.plot(x, centre, linestyle='-', markersize=8, color=COLOURS[k], marker=MARKERS[k], linewidth=2)
                 #plt.fill_between(x, upper, lower, color=COLOURS[k]+[.15])
             #plt.title(case, fontsize=18)
-            plt.legend(d.keys(), loc=1, fontsize=16)
+            plt.legend(d.keys(), loc=1, fontsize=16, frameon=False)
             plt.xlabel("Design $d$", fontsize=22)
             plt.ylabel("EIG estimate", fontsize=22)
             plt.xticks(fontsize=16)
