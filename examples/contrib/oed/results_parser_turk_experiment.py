@@ -14,13 +14,16 @@ from pyro.contrib.util import rmv
 
 output_dir = "./run_outputs/turk_simulation/"
 COLOURS = [[227/255,26/255,28/255], [31/255,120/255,180/255], [51/255,160/255,44/255], [177/255,89/255,40/255],
-           [106 / 255, 61 / 255, 154 / 255], [255/255,127/255,0], [.22, .22, .22]]
+           [106 / 255, 61 / 255, 154 / 255], [255/255,127/255,0], [.22, .22, .22], [.44, .44, .44], [.66, .66, .66]]
+COLOURSD = {'rand': [227/255,26/255,28/255], 'oed': [31/255,120/255,180/255]}
 VALUE_LABELS = {"Entropy": "Posterior entropy on fixed effects",
                 "L2 distance": "Expected L2 distance from posterior to truth",
                 "Optimized EIG": "Maximized EIG",
                 "EIG gap": "Difference between maximum and mean EIG",
                 "Fixed effects @0": "Fixed effects index 1",
                 "Fixed effects @3": "Fixed effects index 4"}
+LEGENDS = {'oed': 'OED', 'rand': 'Random'}
+MARKERS = {'oed': 'o', 'rand': 'D'}
 
 
 def upper_lower(array):
@@ -64,9 +67,9 @@ def main(fnames, findices, plot):
         raise ValueError("No matching files found")
 
     results_dict = defaultdict(lambda: defaultdict(list))
-    typs = {}
     for fname in fnames:
         with open(fname, 'rb') as results_file:
+            i = 0
             try:
                 while True:
                     results = pickle.load(results_file)
@@ -77,24 +80,33 @@ def main(fnames, findices, plot):
                     centered_fixed_effects = results["model_fixed_effect_mean"] - rmv(make_mean, results["model_fixed_effect_mean"])
                     trace = rtrace(covm)
                     output = {"Entropy": entropy}
-                    if "true_fixed_effects" in results:
-                        l2d = torch.norm(centered_fixed_effects - results["true_fixed_effects"], dim=-1)
-                        el2d = torch.sqrt(l2d**2 + trace)
-                        output["L2 distance"] = el2d.squeeze(-1)
+                    # if "true_fixed_effects" in results:
+                    #     l2d = torch.norm(centered_fixed_effects - results["true_fixed_effects"], dim=-1)
+                    #     el2d = torch.sqrt(l2d**2 + trace)
+                    #     output["L2 distance"] = el2d.squeeze(-1)
                     output['Fixed effects @0'] = centered_fixed_effects[..., 0, 0]
                     output['Fixed effects @3'] = centered_fixed_effects[..., 0, 3]
-                    # if 'estimation_surface' in results and results['estimation_surface'] is not None:
-                    #     eig_star, _ = torch.max(results['estimation_surface'], dim=1)
-                    #     eig_star = eig_star
-                    #     eig_mean = results['estimation_surface'].mean(1)
-                    #     output['Optimized EIG'] = eig_star
-                    #     output["EIG gap"] = eig_star - eig_mean
-                    # TODO deal with incorrect order of stream
-                    results_dict[fname][results['run']].append(output)
-                    typs[fname] = results['typ']
+                    if 'estimation_surface' in results and results['estimation_surface'] is not None:
+                        eig_star, _ = torch.max(results['estimation_surface'], dim=1)
+                        eig_star = eig_star
+                        eig_mean = results['estimation_surface'].mean(1)
+                        output['Optimized EIG'] = eig_star
+                        output["EIG gap"] = eig_star - eig_mean
+                    # TODO deal with incorrect order of
+                    if results['typ'].startswith('hist'):
+                        results['typ'] = 'rand'
+                    if len(results_dict[results['typ']][results['run']]) >= i+1:
+                        d = results_dict[results['typ']][results['run']][i]
+                        for k in list(d.keys()):
+                            d[k] = torch.cat([d[k], output[k]])
+                    else:
+                        results_dict[results['typ']][results['run']].append(output)
+                    i += 1
             except EOFError:
                 continue
 
+    if 'oed_no_re' in results_dict:
+        del results_dict['oed_no_re']
     # Get results into better format
     # First, concat across runs
     possible_stats = list(set().union(a for v in results_dict.values() for a in v[1][0].keys()))
@@ -102,22 +114,30 @@ def main(fnames, findices, plot):
                     k: torch.stack([torch.cat([v[run][i][statistic] for run in v]) for i in range(len(v[1]))])
                     for k, v in results_dict.items() if statistic in v[1][0]}
                 for statistic in possible_stats}
+    for k, v in reformed["Entropy"].items():
+        print(k, v.shape)
+
     descript = OrderedDict([(statistic,
                              OrderedDict([(k, upper_lower(v.detach().numpy())) for k, v in sorted(sts.items())]))
                             for statistic, sts in sorted(reformed.items())])
+    print(reformed['Entropy']['oed'][-1, ...])
+    print(reformed['Entropy']['rand'][-1, ...])
 
     if plot:
         for k, r in descript.items():
             value_label = VALUE_LABELS[k]
-            plt.figure(figsize=(10, 5))
-            for i, (lower, centre, upper) in enumerate(r.values()):
+            plt.figure(figsize=(9, 5))
+            for i, (l, (lower, centre, upper)) in enumerate(r.items()):
                 x = np.arange(0, centre.shape[0])
-                plt.plot(x, centre, linestyle='-', markersize=6, color=COLOURS[i], marker='o')
-                plt.fill_between(x, upper, lower, color=COLOURS[i]+[.2])
+                col = COLOURSD.get(l, COLOURS[i])
+                plt.plot(x, centre, linestyle='-', markersize=6, color=col, marker=MARKERS[l])
+                plt.fill_between(x, upper, lower, color=col+[.2])
             # plt.title(value_label, fontsize=18)
-            plt.legend([typs[k] for k in r.keys()], loc=1, fontsize=16)
+            plt.legend([LEGENDS[k] for k in r.keys()], loc=1, fontsize=16, frameon=False)
             plt.xlabel("Step", fontsize=18)
             plt.ylabel(value_label, fontsize=18)
+            if k == "Entropy":
+                plt.ylim(11, 22)
             plt.xticks(fontsize=14)
             plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
             plt.yticks(fontsize=14)

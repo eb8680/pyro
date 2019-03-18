@@ -11,22 +11,19 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
 output_dir = "./run_outputs/"
-lightblue = np.array([158,202,225])/255
-darkblue = np.array([0,0,0])/255
 COLOURS = {
-           0: lightblue,
-           250: .5*lightblue + .5*darkblue,
+           0: [44/255,127/255,184/255],
+           250: [197/255,27/255,138/255],
            150: [51/255,160/255,44/255],
-           125: .75*lightblue + .25*darkblue,
-           100: [(44+197)/510,(127+27)/510,(184+138)/510],
-           500: .25*lightblue + .75*darkblue,
-           2500: darkblue,
+           125: [(44+197)/510,(127+27)/510,(184+138)/510],
            "Ground truth": [0., 0., 0.],
            "Nested Monte Carlo": [227/255,26/255,28/255],
            "posterior": [31/255,120/255,180/255],
            "Posterior exact guide": [1, .4, .4],
            "marginal": [51/255,160/255,44/255],
            "Marginal + likelihood": [.1, .7, .4],
+           "Posterior": [31/255,120/255,180/255],
+           "Marginal": [51/255,160/255,44/255],
            "Amortized LFIRE": [.66, .82, .43],
            "ALFIRE 2": [.3, .7, .9],
            "LFIRE": [177/255,89/255,40/255],
@@ -34,24 +31,13 @@ COLOURS = {
            "IWAE": [106/255,61/255,154/255],
            "Laplace": [255/255,127/255,0],
 }
-MARKERS = {
-           "Ground truth": 'x',
-           "Nested Monte Carlo": 'v',
-           "posterior": 'o',
-           "Posterior exact guide": 'x',
-           "marginal": 's',
-           "Marginal + likelihood": 's',
-           "Amortized LFIRE": 'D',
-           "ALFIRE 2": 'D',
-           "LFIRE": 'D',
-           "LFIRE 2": 'D',
-           "IWAE": '+',
-           "Laplace": '*',
-}
+OTHERCOLOURS = {"Posterior": [158/255,202/255,225/255], "Marginal": [161/255,217/255,155/255]}
+MARKERS = ['x', 'o', '^', '*', 'v', '<', '>', 's', 'P', 'D']
 
 
 def upper_lower(array):
-    print(array.shape)
+    #array[array > 25] = 0.
+    #print(array[:,0])
     centre = np.sqrt((array**2).mean(0))
     z = 1.96/np.sqrt(array.shape[0])
     upper, lower = centre + z*array.std(0), centre - z*array.std(0)
@@ -83,34 +69,47 @@ def main(fnames, findices, plot):
             try:
                 while True:
                     results = pickle.load(results_file)
-                    num_steps = results['num_steps']
+                    method = results['method'].title()
                     t = results['elapsed']
                     surface = results['surface']
-                    results_dict[num_steps][t] = surface
+                    N = results['N']
+                    Ni = results['Ni']
+                    T = results['T']
+                    Ti = results['Ti']
+                    #print(N)
+                    if Ni in [0,2]:
+                        results_dict[(method,)][T] = surface
             except EOFError:
                 continue
 
     # Get results into better format
     # First, concat across runs
-    print(results_dict)
-    reformed = OrderedDict([(num_steps, (np.array([k for k in sorted(d)]), upper_lower(np.abs(-4.526732444763 + torch.stack([v[1] for v in sorted(d.items())], dim=-1).squeeze().detach().numpy()))))
+    #print(results_dict)
+    reformed = OrderedDict([(num_steps, (np.array([k for k in sorted(d)]), upper_lower(np.abs(-4.52673244 + torch.stack([v[1] for v in sorted(d.items())], dim=-1).squeeze().detach().numpy()))))
                             for num_steps, d in sorted(results_dict.items())])
-    print(reformed)
+    #print(reformed)
 
     if plot:
-        plt.figure(figsize=(8, 4))
-        for num_steps, (x, (lower, centre, upper)) in reformed.items():
-            plt.plot(x, centre, linestyle='-', markersize=8, color=COLOURS[num_steps], marker='x', linewidth=2, mew=2)
-            plt.fill_between(x, upper, lower, color=list(COLOURS[num_steps])+[.15])
-        plt.legend([str(x).title() + ' steps' for x in sorted(reformed.keys())], loc=3, fontsize=14, frameon=False)
-        plt.xlabel("Time", fontsize=20)
+        plt.figure(figsize=(5, 5))
+        for i, (k, (x, (lower, centre, upper))) in enumerate(reformed.items()):
+            color = COLOURS[k[0]]
+            plt.plot(x, centre, linestyle='-', markersize=8, color=color, marker=MARKERS[i],
+                     linewidth=2, mew=2)
+
+            plt.fill_between(x, upper, lower, color=color+[.15])
+        plt.legend(["{}".format(x[0]) for x in sorted(reformed.keys())], loc=1, fontsize=14, frameon=False)
+        # for k, (x, (lower, centre, upper)) in reformed.items():
+        #     color = COLOURS[k[0]]
+        #     u = np.polyfit(np.log(x), np.log(centre) + .5 * (np.log(x)), deg=0)[0]
+        #     plt.plot(x, np.exp(u - .5 * np.log(x)), linestyle='--', color=color)
+        plt.xlabel("$K$", fontsize=20)
         plt.ylabel("RMSE in EIG estimate", fontsize=20)
         plt.xticks(fontsize=16)
         #plt.axhline(4.5267, color="k", linestyle='--')
-        plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
+        #plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
         plt.yticks(fontsize=16)
         plt.yscale('log')
-        plt.xscale('log')
+        # plt.xscale('log')
         plt.show()
 
 
