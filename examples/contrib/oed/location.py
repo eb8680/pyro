@@ -25,7 +25,7 @@ def prior_factory(mean, sd):
                 stack.enter_context(iarange)
             loc_shape = batch_shape + (design.shape[-1],)
             pyro.sample("loc", dist.Normal(mean.expand(loc_shape),
-                                           sd.expand(loc_shape)).independent(1))
+                                           sd.expand(loc_shape)).to_event(1))
     return f
 
 

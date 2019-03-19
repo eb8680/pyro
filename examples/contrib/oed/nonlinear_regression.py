@@ -23,12 +23,12 @@ def gk_regression(centre_mean, centre_scale_tril, scale_alpha, scale_beta,
             centre_shape = batch_shape + (1, design.shape[-1])
             centre_st_shape = batch_shape + (1, design.shape[-1], design.shape[-1])
             centre_dist = dist.MultivariateNormal(centre_mean.expand(centre_shape),
-                                                  scale_tril=centre_scale_tril.expand(centre_st_shape)).independent(1)
+                                                  scale_tril=centre_scale_tril.expand(centre_st_shape)).to_event(1)
             centre = pyro.sample(centre_label, centre_dist)
             scale_dist = dist.Gamma(scale_alpha.expand(batch_shape), scale_beta.expand(batch_shape))
             scale = pyro.sample(scale_label, scale_dist).unsqueeze(-1)
             g = torch.exp(-(design - centre).pow(2).sum(-1)/scale)
-            emission_dist = dist.Normal(g, observation_sd).independent(1)
+            emission_dist = dist.Normal(g, observation_sd).to_event(1)
             return pyro.sample(observation_label, emission_dist)
 
     model.observation_label = observation_label
@@ -51,9 +51,9 @@ def sinusoid_regression(amplitude_alpha, amplitude_beta, shift_mean, shift_sd, o
             shift = pyro.sample(shift_label, shift_dist).unsqueeze(-1)
             g = amplitude * torch.sin(shift + design)
             if variable_noise:
-                emission_dist = dist.Normal(g, (1. + torch.abs(design)) * observation_sd).independent(1)
+                emission_dist = dist.Normal(g, (1. + torch.abs(design)) * observation_sd).to_event(1)
             else:
-                emission_dist = dist.Normal(g, observation_sd).independent(1)
+                emission_dist = dist.Normal(g, observation_sd).to_event(1)
             return pyro.sample(observation_label, emission_dist)
 
     model.observation_label = observation_label

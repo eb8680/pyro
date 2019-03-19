@@ -68,7 +68,7 @@ class NewParticipantModel:
             # Sample a fresh sd for each batch, re-use it for each random effect
             re_mean = pyro.param(self.prefix+"random_effect_mean")
             re_sd = rexpand(1./torch.sqrt(re_precision), re_mean.shape[-1])
-            re_dist = dist.Normal(re_mean.expand(batch_shape + (re_mean.shape[-1],)), re_sd).independent(1)
+            re_dist = dist.Normal(re_mean.expand(batch_shape + (re_mean.shape[-1],)), re_sd).to_event(1)
             w.append(pyro.sample("random_effects", re_dist))
 
             # Regression coefficient `w` is batch x p
@@ -82,7 +82,7 @@ class NewParticipantModel:
                 pyro.param(self.prefix+"slope_precision_beta").expand(batch_shape))
             slope_precision = pyro.sample("random_slope_precision", slope_precision_dist)
             slope_sd = rexpand(1./torch.sqrt(slope_precision), slope_design.shape[-1])
-            slope_dist = dist.LogNormal(0., slope_sd).independent(1)
+            slope_dist = dist.LogNormal(0., slope_sd).to_event(1)
             slope = rmv(slope_design, pyro.sample("random_slope", slope_dist).clamp(1e-5, 1e5))
 
             return w, slope
@@ -99,7 +99,7 @@ class NewParticipantModel:
         prediction_mean = rmv(design, w)
         response_dist = dist.CensoredSigmoidNormal(
             loc=slope*prediction_mean, scale=slope*obs_sd, upper_lim=1.-EPSILON, lower_lim=EPSILON
-        ).independent(1)
+        ).to_event(1)
         return pyro.sample("y", response_dist)
 
     def model(self, design):
@@ -166,7 +166,7 @@ class OldParticipantModel(NewParticipantModel):
             # Sample random slope from its own, independent distribution
             target_shape = batch_shape + (slope_design.shape[-1],)
             slope_dist = dist.LogNormal(pyro.param(self.prefix+"slope_mean").expand(target_shape),
-                                        pyro.param(self.prefix+"slope_sd").expand(target_shape)).independent(1)
+                                        pyro.param(self.prefix+"slope_sd").expand(target_shape)).to_event(1)
             slope = rmv(slope_design, pyro.sample("random_slope", slope_dist).clamp(1e-5, 1e5))
 
             return w, slope
@@ -243,7 +243,7 @@ def true_model(p, p_re, num_participants):
 
     # Re is batch x p_re
     re_sd = rexpand(pyro.param("true_re_sigma"), p_re)
-    re_dist = dist.Normal(torch.zeros(p_re), re_sd).independent(1)
+    re_dist = dist.Normal(torch.zeros(p_re), re_sd).to_event(1)
     re = pyro.sample("true_random_effects", re_dist)
 
     ##############
@@ -251,7 +251,7 @@ def true_model(p, p_re, num_participants):
     ##############
     # Slope is batch x num_participants
     slope_sd_expanded = rexpand(pyro.param("true_slope_sd"), num_participants)
-    slope_dist = dist.LogNormal(0., slope_sd_expanded).independent(1)
+    slope_dist = dist.LogNormal(0., slope_sd_expanded).to_event(1)
     slope = pyro.sample("true_random_slope", slope_dist)
 
     def inner_true_model(full_design):
@@ -279,7 +279,7 @@ def true_model(p, p_re, num_participants):
             this_slope = rmv(slope_design, slope)
             response_dist = dist.CensoredSigmoidNormal(
                 loc=this_slope*prediction_mean, scale=this_slope*obs_sd, upper_lim=1.-EPSILON, lower_lim=EPSILON
-            ).independent(1)
+            ).to_event(1)
             return pyro.sample("y", response_dist)
 
     return inner_true_model
