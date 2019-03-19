@@ -13,7 +13,7 @@ import pyro
 import pyro.distributions as dist
 from pyro import optim
 from pyro import poutine
-from pyro.contrib.util import rmv, rexpand, lexpand, rtril, iter_iaranges_to_shape
+from pyro.contrib.util import rmv, rexpand, lexpand, rtril, iter_plates_to_shape
 from pyro.contrib.glmm import broadcast_cat
 from pyro.contrib.oed.eig import naive_rainforth_eig, gibbs_y_eig, gibbs_y_re_eig, elbo_learn
 from pyro.contrib.glmm.guides import SigmoidMarginalGuide, SigmoidLikelihoodGuide
@@ -43,8 +43,8 @@ class NewParticipantModel:
         n, p = design.shape[-2:]
         batch_shape = design.shape[:-2]
         with ExitStack() as stack:
-            for iarange in iter_iaranges_to_shape(batch_shape):
-                stack.enter_context(iarange)
+            for plate in iter_plates_to_shape(batch_shape):
+                stack.enter_context(plate)
 
             # Build the regression coefficient
             w = []
@@ -120,8 +120,8 @@ class OldParticipantModel(NewParticipantModel):
         n, p = design.shape[-2:]
         batch_shape = design.shape[:-2]
         with ExitStack() as stack:
-            for iarange in iter_iaranges_to_shape(batch_shape):
-                stack.enter_context(iarange)
+            for plate in iter_plates_to_shape(batch_shape):
+                stack.enter_context(plate)
 
             # Build the regression coefficient
             w = []
@@ -259,8 +259,8 @@ def true_model(p, p_re, num_participants):
         # design is size batch x n x p
         batch_shape = design.shape[:-2]
         with ExitStack() as stack:
-            for iarange in iter_iaranges_to_shape(batch_shape):
-                stack.enter_context(iarange)
+            for plate in iter_plates_to_shape(batch_shape):
+                stack.enter_context(plate)
 
             # response will be shape batch x n
             obs_sd = pyro.param("true_obs_sd").expand(batch_shape).unsqueeze(-1)

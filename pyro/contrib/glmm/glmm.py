@@ -9,7 +9,7 @@ from torch.distributions import constraints
 
 import pyro
 import pyro.distributions as dist
-from pyro.contrib.util import rmv, rvv, iter_iaranges_to_shape
+from pyro.contrib.util import rmv, rvv, iter_plates_to_shape
 
 try:
     from contextlib import ExitStack  # python 3
@@ -151,8 +151,8 @@ def sigmoid_location_model(loc_mean, loc_sd, multiplier, observation_sd, loc_lab
     def model(design):
         batch_shape = design.shape[:-2]
         with ExitStack() as stack:
-            for iarange in iter_iaranges_to_shape(batch_shape):
-                stack.enter_context(iarange)
+            for plate in iter_plates_to_shape(batch_shape):
+                stack.enter_context(plate)
             loc_shape = batch_shape + (design.shape[-1],)
             loc = pyro.sample(loc_label, dist.Normal(loc_mean.expand(loc_shape),
                                                      loc_sd.expand(loc_shape)).to_event(1))
@@ -204,8 +204,8 @@ def logistic_extrapolation(coef_means, coef_sds, target_design, coef_labels="w",
     def model(design):
         batch_shape = design.shape[:-2]
         with ExitStack() as stack:
-            for iarange in iter_iaranges_to_shape(batch_shape):
-                stack.enter_context(iarange)
+            for plate in iter_plates_to_shape(batch_shape):
+                stack.enter_context(plate)
 
             # Build the regression coefficient
             w = []
@@ -322,8 +322,8 @@ def bayesian_linear_model(design, w_means={}, w_sqrtlambdas={}, re_group_sizes={
     # tau is size batch
     batch_shape = design.shape[:-2]
     with ExitStack() as stack:
-        for iarange in iter_iaranges_to_shape(batch_shape):
-            stack.enter_context(iarange)
+        for plate in iter_plates_to_shape(batch_shape):
+            stack.enter_context(plate)
 
         if obs_sd is None:
             # First, sample tau (observation precision)

@@ -4,7 +4,7 @@ import torch
 
 import pyro
 import pyro.distributions as dist
-from pyro.contrib.util import iter_iaranges_to_shape
+from pyro.contrib.util import iter_plates_to_shape
 
 try:
     from contextlib import ExitStack  # python 3
@@ -18,8 +18,8 @@ def gk_regression(centre_mean, centre_scale_tril, scale_alpha, scale_beta,
     def model(design):
         batch_shape = design.shape[:-2]
         with ExitStack() as stack:
-            for iarange in iter_iaranges_to_shape(batch_shape):
-                stack.enter_context(iarange)
+            for plate in iter_plates_to_shape(batch_shape):
+                stack.enter_context(plate)
             centre_shape = batch_shape + (1, design.shape[-1])
             centre_st_shape = batch_shape + (1, design.shape[-1], design.shape[-1])
             centre_dist = dist.MultivariateNormal(centre_mean.expand(centre_shape),
@@ -43,8 +43,8 @@ def sinusoid_regression(amplitude_alpha, amplitude_beta, shift_mean, shift_sd, o
         design = design.squeeze(-1)
         batch_shape = design.shape[:-1]
         with ExitStack() as stack:
-            for iarange in iter_iaranges_to_shape(batch_shape):
-                stack.enter_context(iarange)
+            for plate in iter_plates_to_shape(batch_shape):
+                stack.enter_context(plate)
             amplitude_dist = dist.Gamma(amplitude_alpha.expand(batch_shape), amplitude_beta.expand(batch_shape))
             amplitude = pyro.sample(amplitude_label, amplitude_dist).unsqueeze(-1)
             shift_dist = dist.Normal(shift_mean.expand(batch_shape), shift_sd.expand(batch_shape))

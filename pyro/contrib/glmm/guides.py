@@ -7,7 +7,7 @@ import pyro
 import pyro.distributions as dist
 from pyro import poutine
 from pyro.contrib.util import (
-    get_indices, tensor_to_dict, rmv, rvv, rtril, rdiag, lexpand, rexpand, iter_iaranges_to_shape
+    get_indices, tensor_to_dict, rmv, rvv, rtril, rdiag, lexpand, rexpand, iter_plates_to_shape
 )
 from pyro.ops.linalg import rinverse
 from pyro.util import is_bad
@@ -158,8 +158,8 @@ class LinearModelLaplaceGuide(nn.Module):
         pyro.module("laplace_guide", self)
         with ExitStack() as stack:
             stack.enter_context(poutine.broadcast())
-            for iarange in iter_iaranges_to_shape(design.shape[:-2]):
-                stack.enter_context(iarange)
+            for plate in iter_plates_to_shape(design.shape[:-2]):
+                stack.enter_context(plate)
 
             if self.training:
                 # MAP via Delta guide
