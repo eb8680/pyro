@@ -12,7 +12,7 @@ from pyro.contrib.oed.eig import barber_agakov_ape
 from pyro.contrib.util import rmv
 
 from pyro.contrib.glmm import sigmoid_model, rf_group_assignments
-from pyro.contrib.glmm.guides import SigmoidGuide
+from pyro.contrib.glmm.guides import SigmoidPosteriorGuide
 
 """
 Sequential optimal experiment design using a sigmoid-transformed linear model.
@@ -51,7 +51,7 @@ when using OED.
 # Random effects designs
 AB_test_reff_6d_10n_12p, AB_sigmoid_design_6d = rf_group_assignments(10)
 
-sigmoid_ba_guide = lambda d: SigmoidGuide(d, 10, {"w1": 2, "w2": 10})  # noqa: E731
+sigmoid_ba_guide = lambda d: SigmoidPosteriorGuide(d, 10, {"w1": 2, "w2": 10})  # noqa: E731
 
 
 def true_model(design):

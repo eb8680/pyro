@@ -26,10 +26,14 @@ from pyro.distributions.von_mises import VonMises
 from pyro.distributions.von_mises_3d import VonMises3D
 from pyro.distributions.zero_inflated_poisson import ZeroInflatedPoisson
 from pyro.distributions.lkj import (LKJCorrCholesky, CorrLCholeskyTransform, corr_cholesky_constraint)
+from pyro.distributions.censored import CensoredDistribution
+from pyro.distributions.censored_sigmoid_normal import CensoredSigmoidNormal
 
 __all__ = [
     "AVFMultivariateNormal",
     "BetaBinomial",
+    "CensoredDistribution",
+    "CensoredSigmoidNormal",
     "Delta",
     "DirichletMultinomial",
     "Distribution",
