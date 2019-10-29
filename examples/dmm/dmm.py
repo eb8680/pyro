@@ -334,7 +334,9 @@ def main(args):
 
     # setup inference algorithm
     if args.tmc:
-        elbo = JitTraceEnum_ELBO() if args.jit else TraceEnum_ELBO()
+        # elbo = JitTraceEnum_ELBO() if args.jit else TraceEnum_ELBO()
+        from pyro.infer.tmc import TensorMonteCarlo
+        elbo = TensorMonteCarlo()
         dmm_guide = config_enumerate(dmm.guide, default="parallel", num_samples=10, expand=False)
         svi = SVI(dmm.model, dmm_guide, adam, loss=elbo)
     else:
