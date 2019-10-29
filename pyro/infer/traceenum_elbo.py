@@ -50,6 +50,18 @@ def _check_model_guide_enumeration_constraint(model_enum_sites, guide_trace):
                                      .format(name, f.name))
 
 
+def _check_tmc_elbo_constraint(model_trace, guide_trace):
+    for name, site in model_trace.nodes.items():
+        if site["infer"].get("enumerate", None) == "parallel" and \
+                site["infer"].get("num_samples", None) and \
+                name not in guide_trace:
+            warnings.warn('\n'.join([
+                "Site {} is multiply sampled in model,".format(site["name"]),
+                "expect incorrect gradient estimates from TraceEnum_ELBO.",
+                "Consider using exact enumeration or guide sampling if possible.",
+            ]), RuntimeWarning)
+
+
 def _find_ordinal(trace, site):
     return frozenset(trace.plate_to_symbol[f.name]
                      for f in site["cond_indep_stack"]
@@ -272,6 +284,7 @@ class TraceEnum_ELBO(ELBO):
 
         if is_validation_enabled():
             check_traceenum_requirements(model_trace, guide_trace)
+            _check_tmc_elbo_constraint(model_trace, guide_trace)
 
             has_enumerated_sites = any(site["infer"].get("enumerate")
                                        for trace in (guide_trace, model_trace)

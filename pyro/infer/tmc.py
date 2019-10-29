@@ -11,7 +11,7 @@ from pyro.infer.elbo import ELBO
 from pyro.infer.enum import get_importance_trace, iter_discrete_escape, iter_discrete_extend
 from pyro.infer.util import is_validation_enabled
 from pyro.ops import packed
-from pyro.ops.einsum import einsum
+from pyro.ops.contract import einsum
 from pyro.poutine.enumerate_messenger import EnumerateMessenger
 from pyro.util import check_traceenum_requirements, warn_if_nan
 
@@ -39,10 +39,10 @@ def _compute_dice_factors(model_trace, guide_trace):
                     # I don't know why the following broadcast is needed, but it makes tests pass:
                     log_prob, _ = packed.broadcast_all(log_prob, site["packed"]["log_prob"])
                 elif site["infer"]["enumerate"] == "sequential":
-                    # XXX probably won't be correct
+                    # XXX not correct for plates?
                     log_denom = torch.tensor(math.log(site["infer"]["_enum_total"]),
                                              device=site["value"].device)
-                    log_denom._pyro_dims = ""  # TODO get dimensions right
+                    log_denom._pyro_dims = dims
                     log_probs.append(log_denom)
             else:  # site was monte carlo sampled
                 if is_identically_zero(log_prob):
@@ -56,7 +56,8 @@ def _compute_dice_factors(model_trace, guide_trace):
 
 def _compute_tmc_estimate(model_trace, guide_trace):
     # factors
-    log_factors = [-site["packed"]["log_prob"] for site in guide_trace.nodes.values()
+    log_factors = [packed.neg(site["packed"]["log_prob"])
+                   for site in guide_trace.nodes.values()
                    if site["type"] == "sample" and not site["is_observed"]]
     log_factors += [site["packed"]["log_prob"] for site in model_trace.nodes.values()
                     if site["type"] == "sample" and site["name"] in guide_trace]
@@ -68,7 +69,7 @@ def _compute_tmc_estimate(model_trace, guide_trace):
     eqn = ",".join([f._pyro_dims for f in log_factors]) + "->"
     plates = "".join(frozenset().union(list(model_trace.plate_to_symbol.values()),
                                        list(guide_trace.plate_to_symbol.values())))
-    tmc = einsum(eqn, *log_factors, plates=plates, backend="pyro.ops.einsum.torch_log")
+    tmc, = einsum(eqn, *log_factors, plates=plates, backend="pyro.ops.einsum.torch_log")
     return tmc
 
 

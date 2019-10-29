@@ -334,9 +334,12 @@ def main(args):
 
     # setup inference algorithm
     if args.tmc:
-        # elbo = JitTraceEnum_ELBO() if args.jit else TraceEnum_ELBO()
         from pyro.infer.tmc import TensorMonteCarlo
-        elbo = TensorMonteCarlo()
+        tmc_loss = TensorMonteCarlo().differentiable_loss
+        dmm_guide = config_enumerate(dmm.guide, default="parallel", num_samples=10, expand=False)
+        svi = SVI(dmm.model, dmm_guide, adam, loss=tmc_loss)
+    elif args.tmcelbo:
+        elbo = JitTraceEnum_ELBO() if args.jit else TraceEnum_ELBO()
         dmm_guide = config_enumerate(dmm.guide, default="parallel", num_samples=10, expand=False)
         svi = SVI(dmm.model, dmm_guide, adam, loss=elbo)
     else:
@@ -464,6 +467,7 @@ if __name__ == '__main__':
     parser.add_argument('--cuda', action='store_true')
     parser.add_argument('--jit', action='store_true')
     parser.add_argument('--tmc', action='store_true')
+    parser.add_argument('--tmcelbo', action='store_true')
     parser.add_argument('-l', '--log', type=str, default='dmm.log')
     args = parser.parse_args()
 
