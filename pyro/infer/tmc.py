@@ -67,8 +67,8 @@ def _compute_tmc_factors(model_trace, guide_trace):
         if site["name"] not in guide_trace and \
                 site["infer"].get("enumerate", None) == "parallel" and \
                 site["infer"].get("num_samples", -1) > 0:
-            # site was sampled from the prior, don't bother including its log_prob
-            continue
+            # site was sampled from the prior, include log_prob proposal term
+            log_factors.append(packed.neg(site["packed"]["log_prob"]))
         log_factors.append(site["packed"]["log_prob"])
 
     return log_factors
