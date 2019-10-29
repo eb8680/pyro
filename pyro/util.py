@@ -333,6 +333,16 @@ def check_traceenum_requirements(model_trace, guide_trace):
                     'to avoid breaking independence of plates "{}"'.format('", "'.join(diff)),
                 ]), RuntimeWarning)
 
+            if role == "model" and \
+                    site["infer"].get("enumerate", None) == "parallel" and \
+                    site["infer"].get("num_samples", None) and \
+                    name not in guide_trace:
+                warnings.warn('\n'.join([
+                    "Site {} is multiply sampled in model,".format(site["name"]),
+                    "expect incorrect gradient estimates from TraceEnum_ELBO.",
+                    "Consider using exact enumeration or guide sampling if possible.",
+                ]), RuntimeWarning)
+
             plate_counters[name] = plate_counter
             if name in enumerated_sites:
                 enumerated_contexts[context].add(name)
