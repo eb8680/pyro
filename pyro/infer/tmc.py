@@ -54,13 +54,30 @@ def _compute_dice_factors(model_trace, guide_trace):
     return log_probs
 
 
-def _compute_tmc_estimate(model_trace, guide_trace):
+def _compute_tmc_factors(model_trace, guide_trace):
     # factors
-    log_factors = [packed.neg(site["packed"]["log_prob"])
-                   for site in guide_trace.nodes.values()
-                   if site["type"] == "sample" and not site["is_observed"]]
-    log_factors += [site["packed"]["log_prob"] for site in model_trace.nodes.values()
-                    if site["type"] == "sample" and site["name"] in guide_trace]
+    log_factors = []
+    for name, site in guide_trace.nodes.items():
+        if site["type"] != "sample" or site["is_observed"]:
+            continue
+        log_factors.append(packed.neg(site["packed"]["log_prob"]))
+    for name, site in model_trace.nodes.items():
+        if site["type"] != "sample":
+            continue
+        if site["name"] not in guide_trace and \
+                site["infer"].get("enumerate", None) == "parallel" and \
+                site["infer"].get("num_samples", -1) > 0:
+            # site was sampled from the prior, don't bother including its log_prob
+            continue
+        log_factors.append(site["packed"]["log_prob"])
+
+    return log_factors
+
+
+def _compute_tmc_estimate(model_trace, guide_trace):
+
+    # factors
+    log_factors = _compute_tmc_factors(model_trace, guide_trace)
 
     # dice factors
     log_factors += _compute_dice_factors(model_trace, guide_trace)
