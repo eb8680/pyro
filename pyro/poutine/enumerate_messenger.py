@@ -19,6 +19,7 @@ def _tmc_sample(msg):
     sample_shape = (num_samples,) if batch_shape == dist.batch_shape else ()
     fat_sample = dist(sample_shape=sample_shape)  # TODO thin before sampling
     assert fat_sample.shape == sample_shape + dist.batch_shape + dist.event_shape
+    assert any(d > 1 for d in fat_sample.shape)
 
     fat_sample = fat_sample.unsqueeze(0) if not sample_shape else fat_sample
     target_shape = (num_samples,) + batch_shape + dist.event_shape
@@ -38,7 +39,9 @@ def _tmc_sample(msg):
 
         thin_sample = thin_sample.transpose(0, squashed_dim1)
 
-        if squashed_dim2 >= len(target_shape) - len(dist.event_shape):
+        # don't squash plate or event dimensions
+        if squashed_dim2 >= len(target_shape) - len(dist.event_shape) or \
+                thin_sample.shape == target_shape:  # XXX not fully general?
             continue
 
         # permute dims to left if necessary

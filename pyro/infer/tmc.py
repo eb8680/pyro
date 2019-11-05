@@ -78,15 +78,15 @@ def _compute_tmc_estimate(model_trace, guide_trace):
 
     # factors
     log_factors = _compute_tmc_factors(model_trace, guide_trace)
-
-    # dice factors
     log_factors += _compute_dice_factors(model_trace, guide_trace)
 
     # loss
     eqn = ",".join([f._pyro_dims for f in log_factors]) + "->"
     plates = "".join(frozenset().union(list(model_trace.plate_to_symbol.values()),
                                        list(guide_trace.plate_to_symbol.values())))
-    tmc, = einsum(eqn, *log_factors, plates=plates, backend="pyro.ops.einsum.torch_log")
+    tmc, = einsum(eqn, *log_factors, plates=plates,
+                  backend="pyro.ops.einsum.torch_log",
+                  modulo_total=False)
     return tmc
 
 
@@ -114,6 +114,7 @@ class TensorMonteCarlo(ELBO):
                               'infer={"enumerate": "sequential"} or infer={"enumerate": "parallel"}? '
                               'If you do not want to enumerate, consider using Trace_ELBO instead.')
 
+        model_trace.compute_score_parts()
         guide_trace.pack_tensors()
         model_trace.pack_tensors(guide_trace.plate_to_symbol)
         return model_trace, guide_trace

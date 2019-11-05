@@ -52,7 +52,8 @@ def _check_model_guide_enumeration_constraint(model_enum_sites, guide_trace):
 
 def _check_tmc_elbo_constraint(model_trace, guide_trace):
     for name, site in model_trace.nodes.items():
-        if site["infer"].get("enumerate", None) == "parallel" and \
+        if site["type"] == "sample" and \
+                site["infer"].get("enumerate", None) == "parallel" and \
                 site["infer"].get("num_samples", None) and \
                 name not in guide_trace:
             warnings.warn('\n'.join([
