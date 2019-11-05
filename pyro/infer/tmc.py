@@ -27,14 +27,17 @@ def _compute_dice_factors(model_trace, guide_trace):
 
             log_prob = site["packed"]["score_parts"].score_function  # not scaled by subsampling
             dims = getattr(log_prob, "_pyro_dims", "")
+            if not isinstance(log_prob, torch.Tensor):
+                log_prob = torch.tensor(float(log_prob), device=site["value"].device)
+
             if site["infer"].get("enumerate") == "parallel":
                 num_samples = site["infer"].get("num_samples")
                 if num_samples is not None:  # site was multiply sampled
-                    if not is_identically_zero(log_prob):
+                    if not site["fn"].has_rsample and not is_identically_zero(log_prob):
                         log_prob = log_prob - log_prob.detach()
+                    else:
+                        log_prob = torch.zeros_like(log_prob)
                     log_prob = log_prob - math.log(num_samples)
-                    if not isinstance(log_prob, torch.Tensor):
-                        log_prob = torch.tensor(float(log_prob), device=site["value"].device)
                     log_prob._pyro_dims = dims
                     # I don't know why the following broadcast is needed, but it makes tests pass:
                     log_prob, _ = packed.broadcast_all(log_prob, site["packed"]["log_prob"])
@@ -46,7 +49,7 @@ def _compute_dice_factors(model_trace, guide_trace):
                                          device=site["value"].device)
                 log_denom._pyro_dims = dims
                 log_probs.append(log_denom)
-            else:  # site was monte carlo sampled
+            else:  # site was singly monte carlo sampled
                 if is_identically_zero(log_prob):
                     continue
                 log_prob = log_prob - log_prob.detach()
