@@ -582,12 +582,21 @@ def main(args):
 
     # Enumeration requires a TraceEnum elbo and declaring the max_plate_nesting.
     # All of our models have two plates: "data" and "tones".
-    Elbo = JitTraceEnum_ELBO if args.jit else TraceEnum_ELBO
-    elbo = Elbo(max_plate_nesting=1 if model is model_0 else 2,
-                strict_enumeration_warning=(model is not model_7),
-                jit_options={"time_compilation": args.time_compilation})
-    optim = Adam({'lr': args.learning_rate})
-    svi = SVI(model, guide, optim, elbo)
+    if args.tmc:
+        from pyro.infer.tmc import TensorMonteCarlo
+        elbo = TensorMonteCarlo(max_plate_nesting=1 if model is model_0 else 2).differentiable_loss
+        tmc_model = poutine.infer_config(
+            model,
+            lambda msg: {"num_samples": 10, "expand": False} if msg["infer"].get("enumerate", None) == "parallel" else {})  # noqa: E501
+        optim = Adam({'lr': args.learning_rate})
+        svi = SVI(tmc_model, guide, optim, elbo)
+    else:
+        Elbo = JitTraceEnum_ELBO if args.jit else TraceEnum_ELBO
+        elbo = Elbo(max_plate_nesting=1 if model is model_0 else 2,
+                    strict_enumeration_warning=(model is not model_7),
+                    jit_options={"time_compilation": args.time_compilation})
+        optim = Adam({'lr': args.learning_rate})
+        svi = SVI(model, guide, optim, elbo)
 
     # We'll train on small minibatches.
     logging.info('Step\tLoss')
@@ -600,7 +609,7 @@ def main(args):
 
     # We evaluate on the entire training dataset,
     # excluding the prior term so our results are comparable across models.
-    train_loss = elbo.loss(model, guide, sequences, lengths, args, include_prior=False)
+    train_loss = (elbo if args.tmc else elbo.loss)(model, guide, sequences, lengths, args, include_prior=False)
     logging.info('training loss = {}'.format(train_loss / num_observations))
 
     # Finally we evaluate on the test dataset.
@@ -615,7 +624,7 @@ def main(args):
     # note that since we removed unseen notes above (to make the problem a bit easier and for
     # numerical stability) this test loss may not be directly comparable to numbers
     # reported on this dataset elsewhere.
-    test_loss = elbo.loss(model, guide, sequences, lengths, args=args, include_prior=False)
+    test_loss = (elbo if args.tmc else elbo.loss)(model, guide, sequences, lengths, args=args, include_prior=False)
     logging.info('test loss = {}'.format(test_loss / num_observations))
 
     # We expect models with higher capacity to perform better,
@@ -643,5 +652,6 @@ if __name__ == '__main__':
     parser.add_argument('--jit', action='store_true')
     parser.add_argument('--time-compilation', action='store_true')
     parser.add_argument('-rp', '--raftery-parameterization', action='store_true')
+    parser.add_argument('--tmc', action='store_true')
     args = parser.parse_args()
     main(args)
