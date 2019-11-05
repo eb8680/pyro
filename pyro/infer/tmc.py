@@ -27,9 +27,9 @@ def _compute_dice_factors(model_trace, guide_trace):
 
             log_prob = site["packed"]["score_parts"].score_function  # not scaled by subsampling
             dims = getattr(log_prob, "_pyro_dims", "")
-            if site["infer"].get("enumerate"):
+            if site["infer"].get("enumerate") == "parallel":
                 num_samples = site["infer"].get("num_samples")
-                if num_samples is not None and site["infer"]["enumerate"] == "parallel":  # site was multiply sampled
+                if num_samples is not None:  # site was multiply sampled
                     if not is_identically_zero(log_prob):
                         log_prob = log_prob - log_prob.detach()
                     log_prob = log_prob - math.log(num_samples)
@@ -38,18 +38,20 @@ def _compute_dice_factors(model_trace, guide_trace):
                     log_prob._pyro_dims = dims
                     # I don't know why the following broadcast is needed, but it makes tests pass:
                     log_prob, _ = packed.broadcast_all(log_prob, site["packed"]["log_prob"])
-                elif site["infer"]["enumerate"] == "sequential":
-                    # XXX not correct for plates?
-                    log_denom = torch.tensor(math.log(site["infer"]["_enum_total"]),
-                                             device=site["value"].device)
-                    log_denom._pyro_dims = dims
-                    log_probs.append(log_denom)
+                    log_probs.append(log_prob)
+            elif site["infer"].get("enumerate") == "sequential":
+                num_samples = site["infer"].get("num_samples", site["infer"]["_enum_total"])
+                # XXX not correct for plates?
+                log_denom = torch.tensor(math.log(num_samples),
+                                         device=site["value"].device)
+                log_denom._pyro_dims = dims
+                log_probs.append(log_denom)
             else:  # site was monte carlo sampled
                 if is_identically_zero(log_prob):
                     continue
                 log_prob = log_prob - log_prob.detach()
                 log_prob._pyro_dims = dims
-            log_probs.append(log_prob)
+                log_probs.append(log_prob)
 
     return log_probs
 
