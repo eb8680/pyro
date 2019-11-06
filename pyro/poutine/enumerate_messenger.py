@@ -36,6 +36,8 @@ def _tmc_sample(msg):
                                                  thin_sample.shape[squashed_dim1+1:]):
             if squashed_size2 > 1 and target_shape[squashed_dim2] == 1:
                 break
+        else:
+            squashed_dim2 = len(thin_sample.shape)
 
         thin_sample = thin_sample.transpose(0, squashed_dim1)
 
