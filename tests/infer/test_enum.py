@@ -1127,22 +1127,25 @@ def test_elbo_hmm_in_model(enumerate1, num_steps, expand):
         ]))
 
 
-@pytest.mark.parametrize("enumerate1,num_steps,expand", [
-    ("sequential", 2, True),
-    ("sequential", 2, False),
-    ("sequential", 3, True),
-    ("sequential", 3, False),
-    ("parallel", 2, True),
-    ("parallel", 2, False),
-    ("parallel", 3, True),
-    ("parallel", 3, False),
-    ("parallel", 10, False),
-    ("parallel", 20, False),
-    _skip_cuda("parallel", 30, False),
-    _skip_cuda("parallel", 40, False),
-    _skip_cuda("parallel", 50, False),
+@pytest.mark.parametrize("enumerate1,num_steps,expand,num_samples", [
+    ("sequential", 2, True, None),
+    ("sequential", 2, False, None),
+    ("sequential", 3, True, None),
+    ("sequential", 3, False, None),
+    ("parallel", 2, True, None),
+    ("parallel", 2, False, None),
+    ("parallel", 3, True, None),
+    ("parallel", 3, False, None),
+    ("parallel", 10, False, None),
+    ("parallel", 20, False, None),
+    ("parallel", 3, False, 50),
+    ("parallel", 10, False, 50),
+    ("parallel", 20, False, 50),
+    _skip_cuda("parallel", 30, False, None),
+    _skip_cuda("parallel", 40, False, None),
+    _skip_cuda("parallel", 50, False, None),
 ])
-def test_elbo_hmm_in_guide(enumerate1, num_steps, expand):
+def test_elbo_hmm_in_guide(enumerate1, num_steps, expand, num_samples):
     pyro.clear_param_store()
     data = torch.ones(num_steps)
     init_probs = torch.tensor([0.5, 0.5])
@@ -1160,7 +1163,7 @@ def test_elbo_hmm_in_guide(enumerate1, num_steps, expand):
             x = pyro.sample("x_{}".format(i), dist.Categorical(probs))
             pyro.sample("y_{}".format(i), dist.Categorical(emission_probs[x]), obs=y)
 
-    @config_enumerate(default=enumerate1, expand=expand)
+    @config_enumerate(default=enumerate1, expand=expand, num_samples=num_samples)
     def guide(data):
         transition_probs = pyro.param("transition_probs",
                                       torch.tensor([[0.75, 0.25], [0.25, 0.75]]),
