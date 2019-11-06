@@ -45,7 +45,7 @@ def _compute_dice_factors(model_trace, guide_trace):
             elif site["infer"].get("enumerate") == "sequential":
                 num_samples = site["infer"].get("num_samples", site["infer"]["_enum_total"])
                 # XXX not correct for plates?
-                log_denom = torch.tensor(math.log(num_samples),
+                log_denom = torch.tensor(-math.log(num_samples),
                                          device=site["value"].device)
                 log_denom._pyro_dims = dims
                 log_probs.append(log_denom)
