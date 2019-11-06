@@ -5,7 +5,6 @@ import os
 import pytest
 import torch
 from torch.autograd import grad
-from torch.distributions import constraints
 
 import pyro
 import pyro.distributions as dist
@@ -104,6 +103,44 @@ def test_tmc_normals(depth, num_samples, max_plate_nesting, reparameterized):
 
     # TODO increase this precision, suspiciously weak
     assert_equal(actual_loss, expected_loss, prec=0.1, msg="".join([
+        "\nexpected loss = {}".format(expected_loss),
+        "\n  actual loss = {}".format(actual_loss),
+    ]))
+
+    # TODO increase this precision, suspiciously weak
+    for actual_grad, expected_grad in zip(actual_grads, expected_grads):
+        assert_equal(actual_grad, expected_grad, prec=0.05, msg="".join([
+            "\nexpected grad = {}".format(expected_grad.detach().cpu().numpy()),
+            "\n  actual grad = {}".format(actual_grad.detach().cpu().numpy()),
+        ]))
+
+
+@pytest.mark.parametrize("depth", [1, 2, 3, 4])
+@pytest.mark.parametrize("num_samples", [500])
+@pytest.mark.parametrize("max_plate_nesting", [0])
+def test_tmc_normals_gradient(depth, num_samples, max_plate_nesting):
+    pyro.clear_param_store()
+
+    q1 = pyro.param("q1", torch.tensor(0.5, requires_grad=True))
+
+    def model(reparameterized):
+        Normal = dist.Normal if reparameterized else fakes.NonreparameterizedNormal
+        x = pyro.sample("x0", Normal(pyro.param("q1"), 1.))
+        for i in range(1, depth):
+            x = pyro.sample("x{}".format(i), Normal(x, 1.))
+        pyro.sample("y", Normal(x, 1.), obs=torch.tensor(float(1)))
+
+    tmc = TensorMonteCarlo(max_plate_nesting=max_plate_nesting)
+    tmc_model = config_enumerate(model, default="parallel", expand=False, num_samples=num_samples)
+
+    expected_loss = tmc.differentiable_loss(tmc_model, lambda x: None, True)
+    expected_grads = grad(expected_loss, (q1,))
+
+    actual_loss = tmc.differentiable_loss(tmc_model, lambda x: None, False)
+    actual_grads = grad(actual_loss, (q1,))
+
+    # TODO increase this precision, suspiciously weak
+    assert_equal(actual_loss, expected_loss, prec=0.05, msg="".join([
         "\nexpected loss = {}".format(expected_loss),
         "\n  actual loss = {}".format(actual_loss),
     ]))
