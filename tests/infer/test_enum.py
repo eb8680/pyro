@@ -2720,10 +2720,12 @@ def test_elbo_dbn_growth():
 @pytest.mark.parametrize("pi_c", [0.37])
 @pytest.mark.parametrize("N_b", [3, 4])
 @pytest.mark.parametrize("N_c", [5, 6])
-@pytest.mark.parametrize("enumerate1", ["sequential", "parallel"])
+@pytest.mark.parametrize("enumerate1,num_samples", [
+    ("sequential", None), ("parallel", None), ("parallel", 100)])
 @pytest.mark.parametrize("expand", [True, False])
-def test_bernoulli_pyramid_elbo_gradient(enumerate1, N_b, N_c, pi_a, pi_b, pi_c, expand):
+def test_bernoulli_pyramid_elbo_gradient(enumerate1, num_samples, N_b, N_c, pi_a, pi_b, pi_c, expand):
     pyro.clear_param_store()
+    num_samples = num_samples if not expand else None
 
     def model():
         a = pyro.sample("a", dist.Bernoulli(0.33))
@@ -2745,7 +2747,7 @@ def test_bernoulli_pyramid_elbo_gradient(enumerate1, N_b, N_c, pi_a, pi_b, pi_c,
     logger.info("Computing gradients using surrogate loss")
     elbo = TraceEnum_ELBO(max_plate_nesting=2,
                           strict_enumeration_warning=True)
-    elbo.loss_and_grads(model, config_enumerate(guide, default=enumerate1, expand=expand))
+    elbo.loss_and_grads(model, config_enumerate(guide, default=enumerate1, expand=expand, num_samples=num_samples))
     actual_grad_qa = pyro.param('qa').grad
     actual_grad_qb = pyro.param('qb').grad
     actual_grad_qc = pyro.param('qc').grad
@@ -2763,7 +2765,7 @@ def test_bernoulli_pyramid_elbo_gradient(enumerate1, N_b, N_c, pi_a, pi_b, pi_c,
     elbo = elbo + N_c * N_b * (1.0 - qa) * (1.0 - qb) * kl_divergence(dist.Bernoulli(qc), dist.Bernoulli(0.32))
     expected_grad_qa, expected_grad_qb, expected_grad_qc = grad(elbo, [qa, qb, qc])
 
-    prec = 0.001
+    prec = 0.001 if num_samples is None else 0.1
 
     assert_equal(actual_grad_qa, expected_grad_qa, prec=prec, msg="".join([
         "\nqa expected = {}".format(expected_grad_qa.data.cpu().numpy()),
