@@ -115,10 +115,10 @@ def test_tmc_normals(depth, num_samples, max_plate_nesting, reparameterized):
         ]))
 
 
-@pytest.mark.parametrize("depth", [1, 2, 3, 4])
-@pytest.mark.parametrize("num_samples", [500])
-@pytest.mark.parametrize("max_plate_nesting", [0])
-def test_tmc_normals_gradient(depth, num_samples, max_plate_nesting):
+@pytest.mark.parametrize("depth", [1, 2, 3])
+@pytest.mark.parametrize("num_samples,expand", [(500, True), (500, False)])
+@pytest.mark.parametrize("max_plate_nesting", [0, 1])
+def test_tmc_normals_gradient(depth, num_samples, max_plate_nesting, expand):
     pyro.clear_param_store()
 
     q1 = pyro.param("q1", torch.tensor(0.5, requires_grad=True))
@@ -131,7 +131,7 @@ def test_tmc_normals_gradient(depth, num_samples, max_plate_nesting):
         pyro.sample("y", Normal(x, 1.), obs=torch.tensor(float(1)))
 
     tmc = TensorMonteCarlo(max_plate_nesting=max_plate_nesting)
-    tmc_model = config_enumerate(model, default="parallel", expand=False, num_samples=num_samples)
+    tmc_model = config_enumerate(model, default="parallel", expand=expand, num_samples=num_samples)
 
     expected_loss = tmc.differentiable_loss(tmc_model, lambda x: None, True)
     expected_grads = grad(expected_loss, (q1,))
