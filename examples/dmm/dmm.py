@@ -336,11 +336,11 @@ def main(args):
     if args.tmc:
         from pyro.infer.tmc import TensorMonteCarlo
         tmc_loss = TensorMonteCarlo().differentiable_loss
-        dmm_guide = config_enumerate(dmm.guide, default="parallel", num_samples=10, expand=False)
+        dmm_guide = config_enumerate(dmm.guide, default="parallel", num_samples=args.tmc_num_samples, expand=False)
         svi = SVI(dmm.model, dmm_guide, adam, loss=tmc_loss)
     elif args.tmcelbo:
         elbo = JitTraceEnum_ELBO() if args.jit else TraceEnum_ELBO()
-        dmm_guide = config_enumerate(dmm.guide, default="parallel", num_samples=10, expand=False)
+        dmm_guide = config_enumerate(dmm.guide, default="parallel", num_samples=args.tmc_num_samples, expand=False)
         svi = SVI(dmm.model, dmm_guide, adam, loss=elbo)
     else:
         elbo = JitTrace_ELBO() if args.jit else Trace_ELBO()
@@ -468,6 +468,7 @@ if __name__ == '__main__':
     parser.add_argument('--jit', action='store_true')
     parser.add_argument('--tmc', action='store_true')
     parser.add_argument('--tmcelbo', action='store_true')
+    parser.add_argument('--tmc-num-samples', default=10, type=int)
     parser.add_argument('-l', '--log', type=str, default='dmm.log')
     args = parser.parse_args()
 

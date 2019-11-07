@@ -268,7 +268,7 @@ def main(args):
         elbo = TensorMonteCarlo(max_plate_nesting=1).differentiable_loss
         tmc_model = poutine.infer_config(
             model,
-            lambda msg: {"num_samples": 20, "expand": False} if msg["infer"].get("enumerate", None) == "parallel" else {})  # noqa: E501
+            lambda msg: {"num_samples": args.tmc_num_samples, "expand": False} if msg["infer"].get("enumerate", None) == "parallel" else {})  # noqa: E501
         optim = Adam({'lr': args.learning_rate})
         svi = SVI(tmc_model, guide, optim, elbo)
     else:
@@ -300,5 +300,6 @@ if __name__ == '__main__':
     parser.add_argument("-n", "--num-steps", default=400, type=int)
     parser.add_argument("-lr", "--learning-rate", default=0.002, type=float)
     parser.add_argument("--tmc", action='store_true')
+    parser.add_argument("--tmc-num-samples", default=10, type=int)
     args = parser.parse_args()
     main(args)
