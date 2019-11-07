@@ -71,23 +71,40 @@ def test_tmc_categoricals(depth, max_plate_nesting, num_samples):
 
 
 @pytest.mark.parametrize("depth", [1, 2])
-@pytest.mark.parametrize("num_samples", [500])
+@pytest.mark.parametrize("num_samples,expand", [(500, True), (500, False)])
 @pytest.mark.parametrize("max_plate_nesting", [0])
 @pytest.mark.parametrize("reparameterized", [True, False])
-def test_tmc_normals_chain_iwae(depth, num_samples, max_plate_nesting, reparameterized):
+@pytest.mark.parametrize("guide_type", ["prior", "factorized", "nonfactorized"])
+def test_tmc_normals_chain_iwae(depth, num_samples, max_plate_nesting,
+                                reparameterized, guide_type, expand):
     # compare iwae and tmc
     pyro.clear_param_store()
 
     q1 = pyro.param("q1", torch.tensor(0.5, requires_grad=True))
+    q2 = pyro.param("q2", torch.tensor(0.4, requires_grad=True))
 
     def model(reparameterized):
         Normal = dist.Normal if reparameterized else fakes.NonreparameterizedNormal
-        x = pyro.sample("x0", Normal(pyro.param("q1"), 1.))
+        x = pyro.sample("x0", Normal(pyro.param("q2"), 1.))
         for i in range(1, depth):
             x = pyro.sample("x{}".format(i), Normal(x, 1.))
-        pyro.sample("y", Normal(x, 1.), obs=torch.tensor(float(0.1)))
+        pyro.sample("y", Normal(x, 1.), obs=torch.tensor(float(1)))
 
-    guide = poutine.block(model, hide_fn=lambda msg: msg["type"] == "sample" and msg["is_observed"])
+    def factorized_guide(reparameterized):
+        Normal = dist.Normal if reparameterized else fakes.NonreparameterizedNormal
+        pyro.sample("x0", Normal(pyro.param("q1"), 1. / depth))
+        for i in range(1, depth):
+            pyro.sample("x{}".format(i), Normal(0., float(i+1 / depth)))
+
+    def nonfactorized_guide(reparameterized):
+        Normal = dist.Normal if reparameterized else fakes.NonreparameterizedNormal
+        x = pyro.sample("x0", Normal(pyro.param("q1"), 1. / depth))
+        for i in range(1, depth):
+            x = pyro.sample("x{}".format(i), Normal(x, 1. / depth))
+
+    guide = factorized_guide if guide_type == "factorized" else \
+        nonfactorized_guide if guide_type == "nonfactorized" else \
+        poutine.block(model, hide_fn=lambda msg: msg["type"] == "sample" and msg["is_observed"])
     flat_num_samples = num_samples ** min(depth, 2)  # don't use too many, expensive
     vectorized_log_weights, _, _ = vectorized_importance_weights(
         model, guide, True,
@@ -95,12 +112,15 @@ def test_tmc_normals_chain_iwae(depth, num_samples, max_plate_nesting, reparamet
         num_samples=flat_num_samples)
     assert vectorized_log_weights.shape == (flat_num_samples,)
     expected_loss = -(vectorized_log_weights.logsumexp(dim=-1) - math.log(float(flat_num_samples)))
-    expected_grads = grad(expected_loss, (q1,))
+    expected_grads = grad(expected_loss, (q1, q2))
 
     tmc = TensorMonteCarlo(max_plate_nesting=max_plate_nesting)
-    tmc_model = config_enumerate(model, default="parallel", expand=False, num_samples=num_samples)
-    actual_loss = tmc.differentiable_loss(tmc_model, lambda x: None, reparameterized)
-    actual_grads = grad(actual_loss, (q1,))
+    tmc_model = config_enumerate(
+        model, default="parallel", expand=expand, num_samples=num_samples)
+    tmc_guide = config_enumerate(
+        guide, default="parallel", expand=expand, num_samples=num_samples)
+    actual_loss = tmc.differentiable_loss(tmc_model, tmc_guide, reparameterized)
+    actual_grads = grad(actual_loss, (q1, q2))
 
     # TODO increase this precision, suspiciously weak
     assert_equal(actual_loss, expected_loss, prec=0.1, msg="".join([
