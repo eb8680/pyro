@@ -27,7 +27,7 @@ class GenericLGSSM(TimeSeriesModel):
             log_obs_noise_scale_init = -2.0 * torch.ones(obs_dim)
         assert log_obs_noise_scale_init.shape == (obs_dim,)
 
-        super(GenericLGSSM, self).__init__()
+        super().__init__()
 
         self.log_obs_noise_scale = nn.Parameter(log_obs_noise_scale_init)
         self.log_trans_noise_scale_sq = nn.Parameter(torch.zeros(state_dim))
@@ -58,7 +58,7 @@ class GenericLGSSM(TimeSeriesModel):
 
     def _get_dist(self):
         """
-        Get the `GaussianHMM` distribution that corresponds to `GenericLGSSM`.
+        Get the :class:`~pyro.distributions.GaussianHMM` distribution that corresponds to :class:`GenericLGSSM`.
         """
         return dist.GaussianHMM(self._get_init_dist(), self.trans_matrix, self._get_trans_dist(),
                                 self.obs_matrix, self._get_obs_dist())
@@ -66,13 +66,14 @@ class GenericLGSSM(TimeSeriesModel):
     def log_prob(self, targets):
         """
         :param torch.Tensor targets: A 2-dimensional tensor of real-valued targets
-            of shape `(T, obs_dim)`, where `T` is the length of the time series and `obs_dim`
-            is the dimension of the real-valued `targets` at each time step
+            of shape ``(T, obs_dim)``, where ``T`` is the length of the time series and ``obs_dim``
+            is the dimension of the real-valued ``targets`` at each time step
         :returns torch.Tensor: A (scalar) log probability.
         """
         assert targets.dim() == 2 and targets.size(-1) == self.obs_dim
         return self._get_dist().log_prob(targets)
 
+    @torch.no_grad()
     def _filter(self, targets):
         """
         Return the filtering state for the associated state space model.
@@ -80,6 +81,7 @@ class GenericLGSSM(TimeSeriesModel):
         assert targets.dim() == 2 and targets.size(-1) == self.obs_dim
         return self._get_dist().filter(targets)
 
+    @torch.no_grad()
     def _forecast(self, N_timesteps, filtering_state, include_observation_noise=True):
         """
         Internal helper for forecasting.
@@ -111,14 +113,14 @@ class GenericLGSSM(TimeSeriesModel):
     def forecast(self, targets, N_timesteps):
         """
         :param torch.Tensor targets: A 2-dimensional tensor of real-valued targets
-            of shape `(T, obs_dim)`, where `T` is the length of the time series and `obs_dim`
+            of shape ``(T, obs_dim)``, where ``T`` is the length of the time series and ``obs_dim``
             is the dimension of the real-valued targets at each time step. These
             represent the training data that are conditioned on for the purpose of making
             forecasts.
         :param int N_timesteps: The number of timesteps to forecast into the future from
-            the final target `targets[-1]`.
+            the final target ``targets[-1]``.
         :returns torch.distributions.MultivariateNormal: Returns a predictive MultivariateNormal distribution
-            with batch shape `(N_timesteps,)` and event shape `(obs_dim,)`
+            with batch shape ``(N_timesteps,)`` and event shape ``(obs_dim,)``
         """
         filtering_state = self._filter(targets)
         predicted_mean, predicted_covar = self._forecast(N_timesteps, filtering_state)
