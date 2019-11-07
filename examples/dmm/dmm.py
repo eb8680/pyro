@@ -334,8 +334,8 @@ def main(args):
 
     # setup inference algorithm
     if args.tmc:
-        from pyro.infer.tmc import TensorMonteCarlo
-        tmc_loss = TensorMonteCarlo()
+        from pyro.infer.tmc import JitTensorMonteCarlo, TensorMonteCarlo
+        tmc_loss = JitTensorMonteCarlo() if args.jit else TensorMonteCarlo()
         dmm_guide = config_enumerate(dmm.guide, default="parallel", num_samples=args.tmc_num_samples, expand=False)
         svi = SVI(dmm.model, dmm_guide, adam, loss=tmc_loss)
     elif args.tmcelbo:

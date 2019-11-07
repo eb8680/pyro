@@ -583,8 +583,8 @@ def main(args):
     # Enumeration requires a TraceEnum elbo and declaring the max_plate_nesting.
     # All of our models have two plates: "data" and "tones".
     if args.tmc:
-        from pyro.infer.tmc import TensorMonteCarlo
-        elbo = TensorMonteCarlo(max_plate_nesting=1 if model is model_0 else 2)
+        from pyro.infer.tmc import JitTensorMonteCarlo, TensorMonteCarlo
+        elbo = (JitTensorMonteCarlo if args.jit else TensorMonteCarlo)(max_plate_nesting=1 if model is model_0 else 2)
         tmc_model = poutine.infer_config(
             model,
             lambda msg: {"num_samples": args.tmc_num_samples, "expand": False} if msg["infer"].get("enumerate", None) == "parallel" else {})  # noqa: E501
