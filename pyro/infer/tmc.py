@@ -178,3 +178,12 @@ class TensorMonteCarlo(ELBO):
         loss = -elbo
         warn_if_nan(loss, "loss")
         return loss
+
+    def loss(self, model, guide, *args, **kwargs):
+        with torch.no_grad():
+            return self.differentiable_loss(model, guide, *args, **kwargs).item()
+
+    def loss_and_grads(self, model, guide, *args, **kwargs):
+        loss = self.differentiable_loss(model, guide, *args, **kwargs)
+        loss.backward()
+        return loss
