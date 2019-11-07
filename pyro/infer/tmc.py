@@ -33,7 +33,7 @@ def _compute_dice_factors(model_trace, guide_trace):
             if site["infer"].get("enumerate") == "parallel":
                 num_samples = site["infer"].get("num_samples")
                 if num_samples is not None:  # site was multiply sampled
-                    if not site["fn"].has_rsample and not is_identically_zero(log_prob):
+                    if not is_identically_zero(log_prob) and not site["fn"].has_rsample:
                         log_prob = log_prob - log_prob.detach()
                     else:
                         log_prob = torch.zeros_like(log_prob)
@@ -72,8 +72,8 @@ def _compute_tmc_factors(model_trace, guide_trace):
         if site["name"] not in guide_trace and \
                 site["infer"].get("enumerate", None) == "parallel" and \
                 site["infer"].get("num_samples", -1) > 0:
-            # site was sampled from the prior, include log_prob proposal term
-            log_factors.append(packed.neg(site["packed"]["log_prob"]))
+            # site was sampled from the prior, proposal term cancels log_prob
+            continue
         log_factors.append(site["packed"]["log_prob"])
 
     return log_factors
