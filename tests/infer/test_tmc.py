@@ -82,6 +82,7 @@ def test_tmc_normals_chain_iwae(depth, num_samples, max_plate_nesting,
 
     q1 = pyro.param("q1", torch.tensor(0.5, requires_grad=True))
     q2 = pyro.param("q2", torch.tensor(0.4, requires_grad=True))
+    qs = (q2.unconstrained(),) if guide_type == "prior" else (q1.unconstrained(), q2.unconstrained())
 
     def model(reparameterized):
         Normal = dist.Normal if reparameterized else fakes.NonreparameterizedNormal
@@ -112,7 +113,7 @@ def test_tmc_normals_chain_iwae(depth, num_samples, max_plate_nesting,
         num_samples=flat_num_samples)
     assert vectorized_log_weights.shape == (flat_num_samples,)
     expected_loss = -(vectorized_log_weights.logsumexp(dim=-1) - math.log(float(flat_num_samples)))
-    expected_grads = grad(expected_loss, (q1, q2))
+    expected_grads = grad(expected_loss, qs)
 
     tmc = TensorMonteCarlo(max_plate_nesting=max_plate_nesting)
     tmc_model = config_enumerate(
@@ -120,7 +121,7 @@ def test_tmc_normals_chain_iwae(depth, num_samples, max_plate_nesting,
     tmc_guide = config_enumerate(
         guide, default="parallel", expand=expand, num_samples=num_samples)
     actual_loss = tmc.differentiable_loss(tmc_model, tmc_guide, reparameterized)
-    actual_grads = grad(actual_loss, (q1, q2))
+    actual_grads = grad(actual_loss, qs)
 
     # TODO increase this precision, suspiciously weak
     assert_equal(actual_loss, expected_loss, prec=0.1, msg="".join([
@@ -146,6 +147,7 @@ def test_tmc_normals_chain_gradient(depth, num_samples, max_plate_nesting, expan
 
     q1 = pyro.param("q1", torch.tensor(0.5, requires_grad=True))
     q2 = pyro.param("q2", torch.tensor(0.4, requires_grad=True))
+    qs = (q2.unconstrained(),) if guide_type == "prior" else (q1.unconstrained(), q2.unconstrained())
 
     def model(reparameterized):
         Normal = dist.Normal if reparameterized else fakes.NonreparameterizedNormal
@@ -176,16 +178,10 @@ def test_tmc_normals_chain_gradient(depth, num_samples, max_plate_nesting, expan
         guide, default="parallel", expand=expand, num_samples=num_samples)
 
     expected_loss = tmc.differentiable_loss(tmc_model, tmc_guide, True)
-    expected_grads = grad(expected_loss, (q1, q2))
+    expected_grads = grad(expected_loss, qs)
 
     actual_loss = tmc.differentiable_loss(tmc_model, tmc_guide, False)
-    actual_grads = grad(actual_loss, (q1, q2))
-
-    # TODO increase this precision, suspiciously weak
-    assert_equal(actual_loss, expected_loss, prec=0.05, msg="".join([
-        "\nexpected loss = {}".format(expected_loss),
-        "\n  actual loss = {}".format(actual_loss),
-    ]))
+    actual_grads = grad(actual_loss, qs)
 
     # TODO increase this precision, suspiciously weak
     for actual_grad, expected_grad in zip(actual_grads, expected_grads):
