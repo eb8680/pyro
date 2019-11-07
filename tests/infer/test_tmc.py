@@ -70,12 +70,12 @@ def test_tmc_categoricals(depth, max_plate_nesting, num_samples):
         ]))
 
 
-@pytest.mark.parametrize("depth", [1, 2, 3, 4])
+@pytest.mark.parametrize("depth", [1, 2])
 @pytest.mark.parametrize("num_samples", [500])
 @pytest.mark.parametrize("max_plate_nesting", [0])
 @pytest.mark.parametrize("reparameterized", [True, False])
-def test_tmc_normals_iwae(depth, num_samples, max_plate_nesting, reparameterized):
-    # compare reparameterized and nonreparameterized gradient estimates
+def test_tmc_normals_chain_iwae(depth, num_samples, max_plate_nesting, reparameterized):
+    # compare iwae and tmc
     pyro.clear_param_store()
 
     q1 = pyro.param("q1", torch.tensor(0.5, requires_grad=True))
@@ -85,7 +85,7 @@ def test_tmc_normals_iwae(depth, num_samples, max_plate_nesting, reparameterized
         x = pyro.sample("x0", Normal(pyro.param("q1"), 1.))
         for i in range(1, depth):
             x = pyro.sample("x{}".format(i), Normal(x, 1.))
-        pyro.sample("y", Normal(x, 1.), obs=torch.tensor(float(1)))
+        pyro.sample("y", Normal(x, 1.), obs=torch.tensor(float(0.1)))
 
     guide = poutine.block(model, hide_fn=lambda msg: msg["type"] == "sample" and msg["is_observed"])
     flat_num_samples = num_samples ** min(depth, 2)  # don't use too many, expensive
@@ -117,57 +117,19 @@ def test_tmc_normals_iwae(depth, num_samples, max_plate_nesting, reparameterized
 
 
 @pytest.mark.parametrize("depth", [1, 2, 3])
-@pytest.mark.parametrize("num_samples,expand", [(500, True), (500, False)])
+@pytest.mark.parametrize("num_samples,expand", [(500, True), (1000, False)])
 @pytest.mark.parametrize("max_plate_nesting", [0, 1])
-def test_tmc_normals_gradient(depth, num_samples, max_plate_nesting, expand):
+@pytest.mark.parametrize("guide_type", ["prior", "factorized", "nonfactorized"])
+def test_tmc_normals_chain_gradient(depth, num_samples, max_plate_nesting, expand, guide_type):
     # compare reparameterized and nonreparameterized gradient estimates
     pyro.clear_param_store()
 
     q1 = pyro.param("q1", torch.tensor(0.5, requires_grad=True))
+    q2 = pyro.param("q2", torch.tensor(0.4, requires_grad=True))
 
     def model(reparameterized):
         Normal = dist.Normal if reparameterized else fakes.NonreparameterizedNormal
-        x = pyro.sample("x0", Normal(pyro.param("q1"), 1.))
-        for i in range(1, depth):
-            x = pyro.sample("x{}".format(i), Normal(x, 1.))
-        pyro.sample("y", Normal(x, 1.), obs=torch.tensor(float(1)))
-
-    tmc = TensorMonteCarlo(max_plate_nesting=max_plate_nesting)
-    tmc_model = config_enumerate(model, default="parallel", expand=expand, num_samples=num_samples)
-
-    expected_loss = tmc.differentiable_loss(tmc_model, lambda x: None, True)
-    expected_grads = grad(expected_loss, (q1,))
-
-    actual_loss = tmc.differentiable_loss(tmc_model, lambda x: None, False)
-    actual_grads = grad(actual_loss, (q1,))
-
-    # TODO increase this precision, suspiciously weak
-    assert_equal(actual_loss, expected_loss, prec=0.05, msg="".join([
-        "\nexpected loss = {}".format(expected_loss),
-        "\n  actual loss = {}".format(actual_loss),
-    ]))
-
-    # TODO increase this precision, suspiciously weak
-    for actual_grad, expected_grad in zip(actual_grads, expected_grads):
-        assert_equal(actual_grad, expected_grad, prec=0.05, msg="".join([
-            "\nexpected grad = {}".format(expected_grad.detach().cpu().numpy()),
-            "\n  actual grad = {}".format(actual_grad.detach().cpu().numpy()),
-        ]))
-
-
-@pytest.mark.parametrize("depth", [1, 2, 3])
-@pytest.mark.parametrize("num_samples,expand", [(500, True), (500, False)])
-@pytest.mark.parametrize("max_plate_nesting", [0, 1])
-@pytest.mark.parametrize("factorized", [True, False])
-def test_tmc_normals_gradient_guide(depth, num_samples, max_plate_nesting, expand, factorized):
-    # compare reparameterized and nonreparameterized gradient estimates
-    pyro.clear_param_store()
-
-    q1 = pyro.param("q1", torch.tensor(0.5, requires_grad=True))
-
-    def model(reparameterized):
-        Normal = dist.Normal if reparameterized else fakes.NonreparameterizedNormal
-        x = pyro.sample("x0", Normal(0., 1.))
+        x = pyro.sample("x0", Normal(pyro.param("q2"), 1.))
         for i in range(1, depth):
             x = pyro.sample("x{}".format(i), Normal(x, 1.))
         pyro.sample("y", Normal(x, 1.), obs=torch.tensor(float(1)))
@@ -185,15 +147,19 @@ def test_tmc_normals_gradient_guide(depth, num_samples, max_plate_nesting, expan
             x = pyro.sample("x{}".format(i), Normal(x, 1. / depth))
 
     tmc = TensorMonteCarlo(max_plate_nesting=max_plate_nesting)
+    tmc_model = config_enumerate(
+        model, default="parallel", expand=expand, num_samples=num_samples)
+    guide = factorized_guide if guide_type == "factorized" else \
+        nonfactorized_guide if guide_type == "nonfactorized" else \
+        lambda *args: None
     tmc_guide = config_enumerate(
-        factorized_guide if factorized else nonfactorized_guide,
-        default="parallel", expand=expand, num_samples=num_samples)
+        guide, default="parallel", expand=expand, num_samples=num_samples)
 
-    expected_loss = tmc.differentiable_loss(model, tmc_guide, True)
-    expected_grads = grad(expected_loss, (q1,))
+    expected_loss = tmc.differentiable_loss(tmc_model, tmc_guide, True)
+    expected_grads = grad(expected_loss, (q1, q2))
 
-    actual_loss = tmc.differentiable_loss(model, tmc_guide, False)
-    actual_grads = grad(actual_loss, (q1,))
+    actual_loss = tmc.differentiable_loss(tmc_model, tmc_guide, False)
+    actual_grads = grad(actual_loss, (q1, q2))
 
     # TODO increase this precision, suspiciously weak
     assert_equal(actual_loss, expected_loss, prec=0.05, msg="".join([
