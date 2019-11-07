@@ -57,14 +57,15 @@ def test_tmc_categoricals(depth, max_plate_nesting, num_samples):
     actual_loss = tmc.differentiable_loss(tmc_model, lambda: None)
     actual_grads = grad(actual_loss, qs)
 
+    prec = 0.02 if num_samples is None else 0.1
     # TODO increase this precision, suspiciously weak
-    assert_equal(actual_loss, expected_loss, prec=0.02, msg="".join([
+    assert_equal(actual_loss, expected_loss, prec=prec, msg="".join([
         "\nexpected loss = {}".format(expected_loss),
         "\n  actual loss = {}".format(actual_loss),
     ]))
 
     for actual_grad, expected_grad in zip(actual_grads, expected_grads):
-        assert_equal(actual_grad, expected_grad, prec=0.02, msg="".join([
+        assert_equal(actual_grad, expected_grad, prec=prec, msg="".join([
             "\nexpected grad = {}".format(expected_grad.detach().cpu().numpy()),
             "\n  actual grad = {}".format(actual_grad.detach().cpu().numpy()),
         ]))
