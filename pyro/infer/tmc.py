@@ -50,7 +50,7 @@ def _compute_dice_factors(model_trace, guide_trace):
                 log_denom._pyro_dims = dims
                 log_probs.append(log_denom)
             else:  # site was singly monte carlo sampled
-                if is_identically_zero(log_prob):
+                if is_identically_zero(log_prob) or site["fn"].has_rsample:
                     continue
                 log_prob = log_prob - log_prob.detach()
                 log_prob._pyro_dims = dims
