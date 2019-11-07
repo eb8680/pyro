@@ -265,7 +265,7 @@ def main(args):
     # we need to use TraceEnum_ELBO.
     if args.tmc:
         from pyro.infer.tmc import TensorMonteCarlo
-        elbo = TensorMonteCarlo(max_plate_nesting=1).differentiable_loss
+        elbo = TensorMonteCarlo(max_plate_nesting=1)
         tmc_model = poutine.infer_config(
             model,
             lambda msg: {"num_samples": args.tmc_num_samples, "expand": False} if msg["infer"].get("enumerate", None) == "parallel" else {})  # noqa: E501

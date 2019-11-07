@@ -584,7 +584,7 @@ def main(args):
     # All of our models have two plates: "data" and "tones".
     if args.tmc:
         from pyro.infer.tmc import TensorMonteCarlo
-        elbo = TensorMonteCarlo(max_plate_nesting=1 if model is model_0 else 2).differentiable_loss
+        elbo = TensorMonteCarlo(max_plate_nesting=1 if model is model_0 else 2)
         tmc_model = poutine.infer_config(
             model,
             lambda msg: {"num_samples": args.tmc_num_samples, "expand": False} if msg["infer"].get("enumerate", None) == "parallel" else {})  # noqa: E501
@@ -609,7 +609,7 @@ def main(args):
 
     # We evaluate on the entire training dataset,
     # excluding the prior term so our results are comparable across models.
-    train_loss = (elbo if args.tmc else elbo.loss)(model, guide, sequences, lengths, args, include_prior=False)
+    train_loss = elbo.loss(model, guide, sequences, lengths, args, include_prior=False)
     logging.info('training loss = {}'.format(train_loss / num_observations))
 
     # Finally we evaluate on the test dataset.
@@ -624,7 +624,7 @@ def main(args):
     # note that since we removed unseen notes above (to make the problem a bit easier and for
     # numerical stability) this test loss may not be directly comparable to numbers
     # reported on this dataset elsewhere.
-    test_loss = (elbo if args.tmc else elbo.loss)(model, guide, sequences, lengths, args=args, include_prior=False)
+    test_loss = elbo.loss(model, guide, sequences, lengths, args=args, include_prior=False)
     logging.info('test loss = {}'.format(test_loss / num_observations))
 
     # We expect models with higher capacity to perform better,
