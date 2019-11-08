@@ -77,7 +77,6 @@ def _compute_tmc_factors(model_trace, guide_trace):
             # site was sampled from the prior, proposal term cancels log_prob
             continue
         log_factors.append(site["packed"]["log_prob"])
-
     return log_factors
 
 
@@ -173,9 +172,6 @@ class TensorMonteCarlo(ELBO):
 
             elbo = elbo + elbo_particle
         elbo = elbo / self.num_particles
-
-        if not torch.is_tensor(elbo) or not elbo.requires_grad:
-            raise ValueError('ELBO is cannot be differentiated: {}'.format(elbo))
 
         loss = -elbo
         warn_if_nan(loss, "loss")
