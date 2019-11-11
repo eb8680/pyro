@@ -173,7 +173,7 @@ class Dice(object):
             if site["infer"].get("enumerate"):
                 num_samples = site["infer"].get("num_samples")
                 if num_samples is not None and site["infer"]["enumerate"] == "parallel":  # site was multiply sampled
-                    if not is_identically_zero(log_prob) and not site["fn"].has_rsample:
+                    if not is_identically_zero(log_prob):
                         log_prob = log_prob - log_prob.detach()
                     else:
                         log_prob = torch.zeros_like(log_prob)
