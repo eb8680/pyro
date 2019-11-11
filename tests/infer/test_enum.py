@@ -1069,23 +1069,20 @@ def test_elbo_rsvi(enumerate1):
     ]))
 
 
-@pytest.mark.parametrize("enumerate1,num_steps,expand,num_samples", [
-    ("sequential", 2, True, None),
-    ("sequential", 2, False, None),
-    ("sequential", 3, True, None),
-    ("sequential", 3, False, None),
-    ("parallel", 2, True, None),
-    ("parallel", 2, False, None),
-    ("parallel", 3, True, None),
-    ("parallel", 3, False, None),
-    ("parallel", 10, False, None),
-    ("parallel", 20, False, None),
-    ("parallel", 3, False, 50),
-    ("parallel", 10, False, 50),
-    ("parallel", 20, False, 50),
-    _skip_cuda("parallel", 30, False, None),
+@pytest.mark.parametrize("enumerate1,num_steps,expand", [
+    ("sequential", 2, True),
+    ("sequential", 2, False),
+    ("sequential", 3, True),
+    ("sequential", 3, False),
+    ("parallel", 2, True),
+    ("parallel", 2, False),
+    ("parallel", 3, True),
+    ("parallel", 3, False),
+    ("parallel", 10, False),
+    ("parallel", 20, False),
+    _skip_cuda("parallel", 30, False),
 ])
-def test_elbo_hmm_in_model(enumerate1, num_steps, expand, num_samples):
+def test_elbo_hmm_in_model(enumerate1, num_steps, expand):
     pyro.clear_param_store()
     data = torch.ones(num_steps)
     init_probs = torch.tensor([0.5, 0.5])
@@ -1104,7 +1101,7 @@ def test_elbo_hmm_in_model(enumerate1, num_steps, expand, num_samples):
             x = pyro.sample("x_{}".format(i), dist.Categorical(probs))
             pyro.sample("y_{}".format(i), dist.Normal(locs[x], scale), obs=y)
 
-    @config_enumerate(default=enumerate1, expand=expand, num_samples=num_samples)
+    @config_enumerate(default=enumerate1, expand=expand)
     def guide(data):
         mean_field_probs = pyro.param("mean_field_probs", torch.ones(num_steps, 2) / 2,
                                       constraint=constraints.simplex)
@@ -1130,25 +1127,22 @@ def test_elbo_hmm_in_model(enumerate1, num_steps, expand, num_samples):
         ]))
 
 
-@pytest.mark.parametrize("enumerate1,num_steps,expand,num_samples", [
-    ("sequential", 2, True, None),
-    ("sequential", 2, False, None),
-    ("sequential", 3, True, None),
-    ("sequential", 3, False, None),
-    ("parallel", 2, True, None),
-    ("parallel", 2, False, None),
-    ("parallel", 3, True, None),
-    ("parallel", 3, False, None),
-    ("parallel", 10, False, None),
-    ("parallel", 20, False, None),
-    ("parallel", 3, False, 50),
-    ("parallel", 10, False, 50),
-    ("parallel", 20, False, 50),
-    _skip_cuda("parallel", 30, False, None),
-    _skip_cuda("parallel", 40, False, None),
-    _skip_cuda("parallel", 50, False, None),
+@pytest.mark.parametrize("enumerate1,num_steps,expand", [
+    ("sequential", 2, True),
+    ("sequential", 2, False),
+    ("sequential", 3, True),
+    ("sequential", 3, False),
+    ("parallel", 2, True),
+    ("parallel", 2, False),
+    ("parallel", 3, True),
+    ("parallel", 3, False),
+    ("parallel", 10, False),
+    ("parallel", 20, False),
+    _skip_cuda("parallel", 30, False),
+    _skip_cuda("parallel", 40, False),
+    _skip_cuda("parallel", 50, False),
 ])
-def test_elbo_hmm_in_guide(enumerate1, num_steps, expand, num_samples):
+def test_elbo_hmm_in_guide(enumerate1, num_steps, expand):
     pyro.clear_param_store()
     data = torch.ones(num_steps)
     init_probs = torch.tensor([0.5, 0.5])
@@ -1166,7 +1160,7 @@ def test_elbo_hmm_in_guide(enumerate1, num_steps, expand, num_samples):
             x = pyro.sample("x_{}".format(i), dist.Categorical(probs))
             pyro.sample("y_{}".format(i), dist.Categorical(emission_probs[x]), obs=y)
 
-    @config_enumerate(default=enumerate1, expand=expand, num_samples=num_samples)
+    @config_enumerate(default=enumerate1, expand=expand)
     def guide(data):
         transition_probs = pyro.param("transition_probs",
                                       torch.tensor([[0.75, 0.25], [0.25, 0.75]]),
@@ -2726,12 +2720,10 @@ def test_elbo_dbn_growth():
 @pytest.mark.parametrize("pi_c", [0.37])
 @pytest.mark.parametrize("N_b", [3, 4])
 @pytest.mark.parametrize("N_c", [5, 6])
-@pytest.mark.parametrize("enumerate1,num_samples", [
-    ("sequential", None), ("parallel", None), ("parallel", 100)])
+@pytest.mark.parametrize("enumerate1", ["sequential", "parallel"])
 @pytest.mark.parametrize("expand", [True, False])
-def test_bernoulli_pyramid_elbo_gradient(enumerate1, num_samples, N_b, N_c, pi_a, pi_b, pi_c, expand):
+def test_bernoulli_pyramid_elbo_gradient(enumerate1, N_b, N_c, pi_a, pi_b, pi_c, expand):
     pyro.clear_param_store()
-    num_samples = num_samples if not expand else None
 
     def model():
         a = pyro.sample("a", dist.Bernoulli(0.33))
@@ -2753,7 +2745,7 @@ def test_bernoulli_pyramid_elbo_gradient(enumerate1, num_samples, N_b, N_c, pi_a
     logger.info("Computing gradients using surrogate loss")
     elbo = TraceEnum_ELBO(max_plate_nesting=2,
                           strict_enumeration_warning=True)
-    elbo.loss_and_grads(model, config_enumerate(guide, default=enumerate1, expand=expand, num_samples=num_samples))
+    elbo.loss_and_grads(model, config_enumerate(guide, default=enumerate1, expand=expand))
     actual_grad_qa = pyro.param('qa').grad
     actual_grad_qb = pyro.param('qb').grad
     actual_grad_qc = pyro.param('qc').grad
@@ -2771,7 +2763,7 @@ def test_bernoulli_pyramid_elbo_gradient(enumerate1, num_samples, N_b, N_c, pi_a
     elbo = elbo + N_c * N_b * (1.0 - qa) * (1.0 - qb) * kl_divergence(dist.Bernoulli(qc), dist.Bernoulli(0.32))
     expected_grad_qa, expected_grad_qb, expected_grad_qc = grad(elbo, [qa, qb, qc])
 
-    prec = 0.001 if num_samples is None else 0.1
+    prec = 0.001
 
     assert_equal(actual_grad_qa, expected_grad_qa, prec=prec, msg="".join([
         "\nqa expected = {}".format(expected_grad_qa.data.cpu().numpy()),
