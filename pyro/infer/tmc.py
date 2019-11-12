@@ -19,6 +19,7 @@ from pyro.util import check_traceenum_requirements, warn_if_nan
 
 
 def _compute_dice_factors(model_trace, guide_trace):
+    # this logic is adapted from pyro.infer.util.Dice.__init__
     log_probs = []
     for role, trace in zip(("model", "guide"), (model_trace, guide_trace)):
         for name, site in trace.nodes.items():
@@ -45,7 +46,6 @@ def _compute_dice_factors(model_trace, guide_trace):
                     log_probs.append(log_prob)
             elif site["infer"].get("enumerate") == "sequential":
                 num_samples = site["infer"].get("num_samples", site["infer"]["_enum_total"])
-                # XXX not correct for plates?
                 log_denom = torch.tensor(-math.log(num_samples),
                                          device=site["value"].device)
                 log_denom._pyro_dims = dims
@@ -97,6 +97,32 @@ def _compute_tmc_estimate(model_trace, guide_trace):
 
 
 class TensorMonteCarlo(ELBO):
+    """
+    A trace-based implementation of Tensor Monte Carlo [1]
+    by way of Tensor Variable Elimination [2] that supports:
+    - local parallel sampling over any sample site in the model or guide
+    - exhaustive enumeration over any sample site in the model or guide
+
+    To take multiple samples, mark the site with
+    ``infer={'enumerate': 'parallel', 'num_samples': N}``.
+    To configure all sites in a model or guide at once,
+    use :func:`~pyro.infer.enum.config_enumerate`.
+    To enumerate or sample a sample site in the ``model``,
+    mark the site and ensure the site does not appear in the ``guide``.
+
+    This assumes restricted dependency structure on the model and guide:
+    variables outside of an :class:`~pyro.plate` can never depend on
+    variables inside that :class:`~pyro.plate`.
+
+    References
+
+    [1] `Tensor Monte Carlo: Particle Methods for the GPU Era`,
+        Laurence Aitchison (2018)
+
+    [2] `Tensor Variable Elimination for Plated Factor Graphs`,
+        Fritz Obermeyer, Eli Bingham, Martin Jankowiak, Justin Chiu, Neeraj Pradhan,
+        Alexander Rush, Noah Goodman (2019)
+    """
 
     def _get_trace(self, model, guide, *args, **kwargs):
         """
@@ -184,7 +210,7 @@ class TensorMonteCarlo(ELBO):
     def loss_and_grads(self, model, guide, *args, **kwargs):
         loss = self.differentiable_loss(model, guide, *args, **kwargs)
         loss.backward()
-        return loss
+        return loss.item()
 
 
 class JitTensorMonteCarlo(TensorMonteCarlo):

@@ -261,7 +261,7 @@ class TraceEnum_ELBO(ELBO):
     """
     A trace implementation of ELBO-based SVI that supports
     - exhaustive enumeration over discrete sample sites, and
-    - local parallel sampling over any sample site.
+    - local parallel sampling over any sample site in the guide.
 
     To enumerate over a sample site in the ``guide``, mark the site with either
     ``infer={'enumerate': 'sequential'}`` or
