@@ -34,14 +34,13 @@ def _compute_dice_factors(model_trace, guide_trace):
 
             if site["infer"].get("enumerate") == "parallel":
                 num_samples = site["infer"].get("num_samples")
-                if num_samples is not None:  # site was multiply sampled
+                if num_samples is not None:
                     if not is_identically_zero(log_prob):
                         log_prob = log_prob - log_prob.detach()
                     else:
                         log_prob = torch.zeros_like(log_prob)
                     log_prob = log_prob - math.log(num_samples)
                     log_prob._pyro_dims = dims
-                    # I don't know why the following broadcast is needed, but it makes tests pass:
                     log_prob, _ = packed.broadcast_all(log_prob, site["packed"]["log_prob"])
                     log_probs.append(log_prob)
             elif site["infer"].get("enumerate") == "sequential":
@@ -72,6 +71,7 @@ def _compute_tmc_factors(model_trace, guide_trace):
         if site["type"] != "sample":
             continue
         if site["name"] not in guide_trace and \
+                not site["is_observed"] and \
                 site["infer"].get("enumerate", None) == "parallel" and \
                 site["infer"].get("num_samples", -1) > 0:
             # site was sampled from the prior, proposal term cancels log_prob
