@@ -128,14 +128,12 @@ def test_tmc_normals_chain_iwae(depth, num_samples, max_plate_nesting,
     actual_loss = (-tmc.differentiable_loss(tmc_model, tmc_guide, reparameterized)).exp()
     actual_grads = grad(actual_loss, qs)
 
-    # TODO increase this precision, suspiciously weak
     assert_equal(actual_loss, expected_loss, prec=0.05, msg="".join([
         "\nexpected loss = {}".format(expected_loss),
         "\n  actual loss = {}".format(actual_loss),
     ]))
 
     grad_prec = 0.05 if reparameterized else 0.1
-    # TODO increase this precision, suspiciously weak
     for actual_grad, expected_grad in zip(actual_grads, expected_grads):
         assert_equal(actual_grad, expected_grad, prec=grad_prec, msg="".join([
             "\nexpected grad = {}".format(expected_grad.detach().cpu().numpy()),
@@ -195,7 +193,6 @@ def test_tmc_normals_chain_gradient(depth, num_samples, max_plate_nesting, expan
 
     grad_prec = 0.05 if reparameterized else 0.1
 
-    # TODO increase this precision, suspiciously weak
     for actual_grad, expected_grad in zip(actual_grads, expected_grads):
         print(actual_loss)
         assert_equal(actual_grad, expected_grad, prec=grad_prec, msg="".join([
