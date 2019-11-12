@@ -62,7 +62,6 @@ def test_tmc_categoricals(depth, max_plate_nesting, num_samples):
     actual_grads = grad(actual_loss, qs)
 
     prec = 0.05
-    # TODO increase this precision, suspiciously weak
     assert_equal(actual_loss, expected_loss, prec=prec, msg="".join([
         "\nexpected loss = {}".format(expected_loss),
         "\n  actual loss = {}".format(actual_loss),
